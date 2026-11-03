@@ -1,21 +1,26 @@
+/** Mêmes rôles que le portail web (types/portail.ts). Cumulables ; « choriste » toujours présent. */
 export type Role =
-  | "choriste"
+  | "admin_chorale"
   | "bureau"
+  | "secretaire"
   | "tresorier"
-  | "commissionRecette"
-  | "commissionMusicale"
+  | "choriste"
+  | "commission_recette"
+  | "commission_musicale"
 
+/** Mêmes droits que le portail web (Perms), calculés dans lib/roles.ts. */
 export type Permission =
-  | "createEvent"
-  | "createCotisation"
-  | "registerPayment"
-  | "viewAllCotisations"
-  | "viewBudget"
-  | "manageDepense"
-  | "exportReport"
-  | "addSong"
-  | "proposeDeleteSong"
-  | "validateDeleteSong"
+  | "comptes"
+  | "comptesFull"
+  | "evenements"
+  | "cotisations"
+  | "paiements"
+  | "budget"
+  | "depensesValider"
+  | "chantsGerer"
+  | "chantsCreer"
+  | "chantsVoir"
+  | "rapports"
 
 export interface Mandat {
   debut: string
@@ -25,7 +30,6 @@ export interface Mandat {
 export interface Chorist {
   id: number
   name: string
-  color: string
   roles: Role[]
   numero: string
   fonction?: string

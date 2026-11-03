@@ -1,74 +1,69 @@
 import { Redirect, Tabs } from "expo-router"
-import { CalendarDays, CreditCard, Home, Music2, User } from "lucide-react-native"
-import { ColorValue, Text, View } from "react-native"
+import { CalendarDays, CreditCard, Home, Music, User, type LucideIcon } from "lucide-react-native"
+import { Text, View } from "react-native"
+import { useSafeAreaInsets } from "react-native-safe-area-context"
+import { cx } from "../../components/ui"
 import { colors } from "../../constants/theme"
 import { useApp } from "../../context/AppContext"
 
-function TabLabel({ label, focused, color }: { label: string; focused: boolean; color: ColorValue }) {
+// Barre de navigation basse (.navbar) : fond blanc translucide, onglet actif navy avec point or.
+function TabItem({ icon: Icon, label, focused }: { icon: LucideIcon; label: string; focused: boolean }) {
   return (
-    <View style={{ alignItems: "center", marginTop: -2 }}>
-      <Text style={{ color, fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.2 }}>{label}</Text>
-      {focused ? (
-        <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: colors.gold, marginTop: 2 }} />
-      ) : null}
+    <View className="w-[72px] items-center gap-[3px]">
+      <Icon size={22} color={focused ? colors.navy : colors.inkLight} strokeWidth={1.7} />
+      <Text numberOfLines={1} allowFontScaling={false} className={cx("font-sans-semibold text-[10px] tracking-[0.2px]", focused ? "text-navy" : "text-ink-light")}>
+        {label}
+      </Text>
+      <View className={cx("-mt-px h-1 w-1 rounded-full", focused ? "bg-gold" : "bg-transparent")} />
     </View>
   )
 }
 
-export default function TabsLayout() {
-  const { userId } = useApp()
-  if (!userId) return <Redirect href="/login" />
+const TABS: { name: string; label: string; icon: LucideIcon }[] = [
+  { name: "index", label: "Accueil", icon: Home },
+  { name: "cotisations", label: "Cotisations", icon: CreditCard },
+  { name: "evenements", label: "Événements", icon: CalendarDays },
+  { name: "chants", label: "Chants", icon: Music },
+  { name: "profil", label: "Profil", icon: User },
+]
 
+export default function TabsLayout() {
+  const { userId, session, authReady } = useApp()
+  const insets = useSafeAreaInsets()
+  if (!authReady) return null
+  if (!userId) return <Redirect href="/login" />
+  // Mot de passe temporaire : l'API refuse les autres routes tant qu'il n'est pas changé.
+  if (session?.doitChangerMotDePasse) return <Redirect href="/change-password" />
+
+  // Options du navigateur : objets de style attendus par React Navigation (pas de className).
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: colors.aubergine,
-        tabBarInactiveTintColor: colors.muted,
-        tabBarShowLabel: true,
+        tabBarShowLabel: false,
+        sceneStyle: { backgroundColor: colors.surface },
+        tabBarItemStyle: { justifyContent: "center", alignItems: "center" },
+        tabBarIconStyle: { width: 72, height: 44 },
         tabBarStyle: {
-          height: 82,
-          paddingTop: 8,
-          backgroundColor: "rgba(246,239,227,0.96)",
-          borderTopColor: "rgba(46,27,51,0.1)",
+          height: 68 + insets.bottom,
+          paddingTop: 10,
+          paddingBottom: Math.max(insets.bottom, 10),
+          backgroundColor: colors.paperTranslucent,
+          borderTopWidth: 1,
+          borderTopColor: colors.line,
         },
       }}
     >
-      <Tabs.Screen
-        name="index"
-        options={{
-          tabBarIcon: ({ color, size }) => <Home color={color} size={size} strokeWidth={1.7} />,
-          tabBarLabel: ({ focused, color }) => <TabLabel label="Accueil" focused={focused} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="cotisations"
-        options={{
-          tabBarIcon: ({ color, size }) => <CreditCard color={color} size={size} strokeWidth={1.7} />,
-          tabBarLabel: ({ focused, color }) => <TabLabel label="Cotisations" focused={focused} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="evenements"
-        options={{
-          tabBarIcon: ({ color, size }) => <CalendarDays color={color} size={size} strokeWidth={1.7} />,
-          tabBarLabel: ({ focused, color }) => <TabLabel label="Événements" focused={focused} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="chants"
-        options={{
-          tabBarIcon: ({ color, size }) => <Music2 color={color} size={size} strokeWidth={1.7} />,
-          tabBarLabel: ({ focused, color }) => <TabLabel label="Chants" focused={focused} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="profil"
-        options={{
-          tabBarIcon: ({ color, size }) => <User color={color} size={size} strokeWidth={1.7} />,
-          tabBarLabel: ({ focused, color }) => <TabLabel label="Profil" focused={focused} color={color} />,
-        }}
-      />
+      {TABS.map((t) => (
+        <Tabs.Screen
+          key={t.name}
+          name={t.name}
+          options={{
+            tabBarAccessibilityLabel: t.label,
+            tabBarIcon: ({ focused }) => <TabItem icon={t.icon} label={t.label} focused={focused} />,
+          }}
+        />
+      ))}
     </Tabs>
   )
 }

@@ -1,30 +1,31 @@
-import React, { createContext, useCallback, useContext, useMemo, useState } from "react"
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
 import {
   ANNEE,
   MENSUALITE,
   MONTHS,
-  chorists,
+  chorists as mockChorists,
   initialChants,
   initialEvents,
   initialRecus,
   initialStatutaire,
-  roleHistory,
+  roleHistory as mockRoleHistory,
   roleLabels,
 } from "../data/mockData"
-import { Chant, Chorist, Evenement, Permission, Recu, Role } from "../types"
+import * as api from "../lib/api"
+import { computePerms, type Perms } from "../lib/roles"
+import { Chant, Chorist, Evenement, Permission, Recu, RoleHistoryEntry } from "../types"
 
-const PERMISSION_ROLES: Record<Permission, Role[]> = {
-  createEvent: ["bureau", "tresorier"],
-  createCotisation: ["bureau", "tresorier"],
-  registerPayment: ["tresorier", "commissionRecette"],
-  viewAllCotisations: ["bureau", "tresorier", "commissionRecette"],
-  viewBudget: ["bureau", "tresorier"],
-  manageDepense: ["bureau", "tresorier"],
-  exportReport: ["bureau", "tresorier"],
-  addSong: ["bureau", "commissionMusicale"],
-  proposeDeleteSong: ["commissionMusicale"],
-  validateDeleteSong: ["bureau"],
-}
+/** Nom de la chorale des comptes de démonstration (hors connexion). */
+const DEMO_CHORALE_NOM = "Chorale Sainte-Cécile de Yaoundé"
+
+/**
+ * Le membre connecté via l'API rejoint la liste des choristes des données de démonstration
+ * (cotisations, événements, chants : pas encore servis par le backend). Son identifiant local
+ * est décalé pour ne jamais entrer en collision avec ceux des comptes de démo.
+ */
+const API_ID_OFFSET = 10_000
+const localIdOf = (session: api.Session) => API_ID_OFFSET + session.membershipId
+
 
 function fabricateReceiptId() {
   return "REC-" + ANNEE + "-" + (1000 + Math.floor(Math.random() * 9000))
@@ -52,11 +53,24 @@ interface AppContextValue {
   currentUser: Chorist | null
   chorists: Chorist[]
   roleLabels: Record<string, string>
-  roleHistory: typeof roleHistory
+  roleHistory: Record<number, RoleHistoryEntry[]>
+  /** Session de l'API (null : non connecté, ou compte de démonstration). */
+  session: api.Session | null
+  /** Faux tant que la session enregistrée n'a pas été relue au démarrage. */
+  authReady: boolean
+  /** Vrai pour un compte de démonstration (aucune donnée réelle). */
+  isDemo: boolean
+  choraleNom: string
+  /** Connexion réelle (email ou téléphone + mot de passe). Lève une ApiError en cas de refus. */
+  signIn: (identifier: string, password: string) => Promise<api.Session>
+  /** Première connexion : remplace le mot de passe temporaire. */
+  changePassword: (current: string, next: string) => Promise<void>
   events: Evenement[]
   chants: Chant[]
   recus: Recu[]
   statutaire: Record<number, boolean[]>
+  /** Droits du membre courant (mêmes règles que le web). */
+  perms: Perms
   can: (perm: Permission) => boolean
   loginAs: (id: number) => void
   logout: () => void
@@ -80,22 +94,97 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [chants, setChants] = useState<Chant[]>(initialChants)
   const [recus, setRecus] = useState<Recu[]>(initialRecus)
   const [statutaire, setStatutaire] = useState<Record<number, boolean[]>>(initialStatutaire)
+  const [session, setSession] = useState<api.Session | null>(null)
+  const [apiRoleHistory, setApiRoleHistory] = useState<RoleHistoryEntry[]>([])
+  const [authReady, setAuthReady] = useState(false)
 
-  const currentUser = useMemo(
-    () => chorists.find((c) => c.id === userId) ?? null,
-    [userId]
+  // Le membre connecté via l'API, ajouté aux choristes de démonstration.
+  const sessionChorist = useMemo<Chorist | null>(
+    () => (session ? { id: localIdOf(session), name: session.nom, roles: session.roles, numero: String(session.membershipId) } : null),
+    [session]
+  )
+  const chorists = useMemo(() => (sessionChorist ? [sessionChorist, ...mockChorists] : mockChorists), [sessionChorist])
+  const roleHistory = useMemo(
+    () => (sessionChorist ? { ...mockRoleHistory, [sessionChorist.id]: apiRoleHistory } : mockRoleHistory),
+    [sessionChorist, apiRoleHistory]
   )
 
-  const can = useCallback(
-    (perm: Permission) => {
-      if (!currentUser) return false
-      return PERMISSION_ROLES[perm]?.some((r) => currentUser.roles.includes(r)) ?? false
+  const currentUser = useMemo(() => chorists.find((c) => c.id === userId) ?? null, [chorists, userId])
+
+  /** Ouvre la session : identifiant local, carte de cotisation vide, historique des rôles. */
+  const openSession = useCallback((next: api.Session) => {
+    const id = localIdOf(next)
+    setSession(next)
+    setUserId(id)
+    setStatutaire((prev) => (prev[id] ? prev : { ...prev, [id]: Array<boolean>(12).fill(false) }))
+    if (!next.doitChangerMotDePasse) {
+      api
+        .fetchRoleHistory()
+        .then(setApiRoleHistory)
+        .catch(() => setApiRoleHistory([]))
+    }
+  }, [])
+
+  const closeSession = useCallback(() => {
+    setSession(null)
+    setApiRoleHistory([])
+    setUserId(null)
+  }, [])
+
+  // Au démarrage : relit la session à partir du jeton enregistré.
+  // Jeton refusé (expiré, compte désactivé) : retour à l'écran de connexion.
+  useEffect(() => {
+    api.setUnauthorizedHandler(closeSession)
+    let cancelled = false
+    ;(async () => {
+      try {
+        if (await api.hasStoredToken()) {
+          const restored = await api.fetchSession()
+          if (!cancelled) openSession(restored)
+        }
+      } catch {
+        await api.clearToken()
+      } finally {
+        if (!cancelled) setAuthReady(true)
+      }
+    })()
+    return () => {
+      cancelled = true
+      api.setUnauthorizedHandler(null)
+    }
+  }, [openSession, closeSession])
+
+  const signIn = useCallback(
+    async (identifier: string, password: string) => {
+      const next = await api.login(identifier, password)
+      openSession(next)
+      return next
     },
-    [currentUser]
+    [openSession]
   )
 
-  const loginAs = useCallback((id: number) => setUserId(id), [])
-  const logout = useCallback(() => setUserId(null), [])
+  const changePassword = useCallback(
+    async (current: string, next: string) => {
+      openSession(await api.changerMotDePasse(current, next))
+    },
+    [openSession]
+  )
+
+  const perms = useMemo(() => computePerms(currentUser?.roles ?? []), [currentUser])
+  const can = useCallback((perm: Permission) => currentUser !== null && perms[perm], [currentUser, perms])
+
+  /** Compte de démonstration : aucune session API. */
+  const loginAs = useCallback((id: number) => {
+    void api.clearToken()
+    setSession(null)
+    setApiRoleHistory([])
+    setUserId(id)
+  }, [])
+
+  const logout = useCallback(() => {
+    void api.clearToken()
+    closeSession()
+  }, [closeSession])
 
   const roleLabelFor = useCallback((user: Chorist) => {
     const role = user.roles.find((r) => r !== "choriste") ?? "choriste"
@@ -179,7 +268,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       return [...prev, newEv]
     })
-  }, [])
+  }, [chorists])
 
   const toggleInscription = useCallback(
     (eventId: number) => {
@@ -248,10 +337,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     chorists,
     roleLabels,
     roleHistory,
+    session,
+    authReady,
+    isDemo: session === null && userId !== null,
+    choraleNom: session?.chorale.nom ?? DEMO_CHORALE_NOM,
+    signIn,
+    changePassword,
     events,
     chants,
     recus,
     statutaire,
+    perms,
     can,
     loginAs,
     logout,

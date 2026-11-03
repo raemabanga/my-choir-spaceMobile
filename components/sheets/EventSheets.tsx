@@ -1,18 +1,24 @@
+// Bottom sheets Événements — conformes à openEventForm() et openEventSheet() du prototype cantoria-app-mobile-v2.html.
 import { useState } from "react"
 import { Text, View } from "react-native"
-import { colors } from "../../constants/theme"
 import { useApp } from "../../context/AppContext"
 import { useSheet } from "../../context/SheetContext"
 import { useToast } from "../../context/ToastContext"
-import { fmt, formatDateShort } from "../../lib/format"
+import { eventBilan, fmt, formatDateShort } from "../../lib/format"
 import { DateField } from "../DateField"
-import { Button, Field, ListRow, Muted, Pill, RowBetween, Select } from "../ui"
-
-function SheetTitle({ children }: { children: React.ReactNode }) {
-  return <Text style={{ fontFamily: "Fraunces_600SemiBold", fontSize: 19, color: colors.aubergine, marginBottom: 4 }}>{children}</Text>
-}
+import { Button, Card, Field, FormRow2, KeyValue, ListRow, Muted, Pill, RowBetween, SectionHeader, Select, SheetTitle } from "../ui"
 
 const EVENT_TYPES = ["Concert", "Sortie", "Veillée", "Mariage", "Décès", "Maladie"]
+
+/**
+ * Police Geist Mono des champs numériques. Exception `style` : Field ne transmet pas de className
+ * à son TextInput (un className écraserait ses classes internes), on passe donc par sa prop `style`.
+ */
+
+/** Ligne de la carte Recettes / Dépenses / Solde : espacement de 6 (KeyValue n'offre que 0 ou 8). */
+function BilanRow({ children, first }: { children: React.ReactNode; first?: boolean }) {
+  return <View className={first ? undefined : "mt-1.5"}>{children}</View>
+}
 
 export function EventFormSheet() {
   const { createEvent } = useApp()
@@ -27,9 +33,12 @@ export function EventFormSheet() {
   const [description, setDescription] = useState("")
 
   function confirm() {
-    const finalTitre = titre || "Nouvel événement"
+    if (!titre.trim()) {
+      toast("Renseignez le titre de l'événement")
+      return
+    }
     createEvent({
-      titre: finalTitre,
+      titre: titre.trim(),
       type,
       date: date.toISOString().slice(0, 10),
       description,
@@ -37,7 +46,7 @@ export function EventFormSheet() {
       cotisationMontant: parseInt(cotisation) || 1000,
     })
     closeSheet()
-    toast("Événement créé : " + finalTitre)
+    toast("Événement créé : " + titre.trim())
   }
 
   return (
@@ -45,18 +54,21 @@ export function EventFormSheet() {
       <SheetTitle>Créer un événement</SheetTitle>
       <Field label="Titre" placeholder="Ex : Veillée de prière" value={titre} onChangeText={setTitre} />
       <Select label="Type" value={type} onChange={setType} options={EVENT_TYPES.map((t) => ({ label: t, value: t }))} />
-      <View style={{ flexDirection: "row", gap: 10 }}>
-        <View style={{ flex: 1 }}>
-          <DateField label="Date" value={date} onChange={setDate} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Field label="Budget prév." placeholder="0" value={budget} onChangeText={setBudget} keyboardType="numeric" />
-        </View>
-      </View>
-      <Field label="Montant de cotisation / personne" placeholder="2000" value={cotisation} onChangeText={setCotisation} keyboardType="numeric" />
+      <FormRow2>
+        <DateField label="Date" value={date} onChange={setDate} />
+        <Field label="Budget prév." placeholder="0" value={budget} onChangeText={setBudget} keyboardType="numeric" mono />
+      </FormRow2>
+      <Field
+        label="Montant de cotisation / personne"
+        placeholder="2000"
+        value={cotisation}
+        onChangeText={setCotisation}
+        keyboardType="numeric"
+        mono
+      />
       <Field label="Description" placeholder="Détails de l'événement..." value={description} onChangeText={setDescription} multiline />
-      <Button title="Créer l'événement" onPress={confirm} block style={{ marginTop: 20 }} />
-      <Button title="Annuler" variant="ghost" onPress={closeSheet} block />
+      <Button title="Créer l'événement" onPress={confirm} block className="mt-5" />
+      <Button title="Annuler" variant="ghost" onPress={closeSheet} block className="mt-2" />
     </View>
   )
 }
@@ -72,8 +84,7 @@ export function EventDetailSheet({ eventId }: { eventId: number }) {
   if (!ev || !currentUser) return null
 
   const inscrit = ev.inscrits.includes(currentUser.id)
-  const rec = Object.values(ev.contributions).reduce((a, b) => a + b, 0)
-  const dep = ev.depenses.filter((d) => d.valide).reduce((a, b) => a + b.montant, 0)
+  const bilan = eventBilan(ev)
 
   function handleAddDepense() {
     const montant = parseInt(depMontant) || 0
@@ -84,28 +95,26 @@ export function EventDetailSheet({ eventId }: { eventId: number }) {
     addDepense(eventId, depLabel, montant)
     setDepLabel("")
     setDepMontant("")
+    toast("Dépense ajoutée — en attente de validation")
   }
 
   return (
     <View>
       <SheetTitle>{ev.titre}</SheetTitle>
       <Pill variant="gold">{ev.type}</Pill>
-      <Muted style={{ marginTop: 10 }}>{ev.description}</Muted>
+      {ev.description ? <Muted className="mb-1.5 mt-2.5 leading-[18px]">{ev.description}</Muted> : null}
 
-      <View style={{ backgroundColor: colors.white, borderWidth: 1, borderColor: "rgba(46,27,51,0.08)", borderRadius: 18, padding: 16, marginTop: 6, marginBottom: 12 }}>
-        <RowBetween>
-          <Muted>Date</Muted>
-          <Text style={{ fontFamily: "Inter_700Bold", fontSize: 13 }}>{formatDateShort(ev.date)}</Text>
-        </RowBetween>
-        <RowBetween style={{ marginTop: 8 }}>
-          <Muted>Cotisation</Muted>
-          <Text style={{ fontFamily: "Inter_700Bold", fontSize: 13 }}>{fmt(ev.cotisationMontant)} / personne</Text>
-        </RowBetween>
-        <RowBetween style={{ marginTop: 8 }}>
+      <Card className="mt-1.5">
+        <KeyValue label="Date" value={formatDateShort(ev.date)} first mono />
+        <KeyValue label="Cotisation" value={`${fmt(ev.cotisationMontant)} / personne`} mono />
+        {/* Valeur mixte (nombre en Geist Mono + texte en Geist) : KeyValue n'accepte qu'une chaîne. */}
+        <RowBetween className="mt-2">
           <Muted>Inscrits</Muted>
-          <Text style={{ fontFamily: "Inter_700Bold", fontSize: 13 }}>{ev.inscrits.length} choriste(s)</Text>
+          <Text className="shrink text-right font-sans-bold text-[13px] tabular-nums text-ink">
+            <Text className="font-mono-semibold">{ev.inscrits.length}</Text> choriste(s)
+          </Text>
         </RowBetween>
-      </View>
+      </Card>
 
       <Button
         title={inscrit ? "Inscrit ✓ — Se désinscrire" : "S'inscrire à l'événement"}
@@ -117,69 +126,66 @@ export function EventDetailSheet({ eventId }: { eventId: number }) {
         }}
       />
 
-      {can("manageDepense") ? (
-        <View style={{ marginTop: 18 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 }}>
-            <Text style={{ fontFamily: "Fraunces_600SemiBold", fontSize: 15, color: colors.aubergine }}>Dépenses</Text>
-            <View style={{ flex: 1, height: 1, backgroundColor: "rgba(46,27,51,0.25)" }} />
-          </View>
-
+      {can("budget") ? (
+        <View>
+          {/* « ! » : prime sur la marge haute par défaut de SectionHeader (22px). */}
+          <SectionHeader title="Dépenses" className="mt-[18px]" />
           {ev.depenses.length === 0 ? (
-            <Muted>Aucune dépense enregistrée.</Muted>
+            <Muted className="mb-0.5">Aucune dépense enregistrée.</Muted>
           ) : (
             ev.depenses.map((d, i) => (
               <ListRow
                 key={i}
                 title={d.label}
-                subtitle={fmt(d.montant)}
+                // Montant en Geist Mono ; taille et couleur héritées du sous-titre de ListRow.
+                subtitle={<Text className="font-mono-medium tabular-nums">{fmt(d.montant)}</Text>}
                 right={
                   d.valide ? (
                     <Pill variant="green">Validée</Pill>
+                  ) : !can("depensesValider") ? (
+                    <Pill variant="pending">En attente</Pill>
                   ) : (
-                    <Button title="Valider" variant="outline" small onPress={() => validateDepense(eventId, i)} />
+                    <Button
+                      title="Valider"
+                      variant="outline"
+                      small
+                      onPress={() => {
+                        validateDepense(eventId, i)
+                        toast("Dépense validée")
+                      }}
+                    />
                   )
                 }
               />
             ))
           )}
 
-          <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
-            <View style={{ flex: 1 }}>
+          <View className="mt-2.5">
+            <FormRow2>
               <Field label="" placeholder="Intitulé" value={depLabel} onChangeText={setDepLabel} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Field label="" placeholder="Montant" value={depMontant} onChangeText={setDepMontant} keyboardType="numeric" />
-            </View>
+              <Field label="" placeholder="Montant" value={depMontant} onChangeText={setDepMontant} keyboardType="numeric" mono />
+            </FormRow2>
           </View>
-          <Button title="+ Ajouter une dépense" variant="ghost" block onPress={handleAddDepense} />
+          <Button title="+ Ajouter une dépense" variant="ghost" block className="mt-2" onPress={handleAddDepense} />
 
-          <View style={{ backgroundColor: colors.white, borderWidth: 1, borderColor: "rgba(46,27,51,0.08)", borderRadius: 18, padding: 16, marginTop: 4 }}>
-            <RowBetween>
-              <Muted>Recettes</Muted>
-              <Text style={{ fontFamily: "Inter_700Bold", color: colors.green }}>{fmt(rec)}</Text>
-            </RowBetween>
-            <RowBetween style={{ marginTop: 6 }}>
-              <Muted>Dépenses validées</Muted>
-              <Text style={{ fontFamily: "Inter_700Bold", color: colors.burgundy }}>{fmt(dep)}</Text>
-            </RowBetween>
-            <RowBetween style={{ marginTop: 6 }}>
-              <Muted>Solde</Muted>
-              <Text style={{ fontFamily: "Inter_700Bold" }}>{fmt(rec - dep)}</Text>
-            </RowBetween>
-            {can("exportReport") ? (
-              <Button
-                title="Exporter le rapport"
-                variant="outline"
-                block
-                style={{ marginTop: 10 }}
-                onPress={() => toast("Export PDF généré (démo)")}
-              />
+          <Card className="mt-3">
+            <BilanRow first>
+              <KeyValue label="Recettes" value={fmt(bilan.recettes)} valueClassName="text-success" first mono />
+            </BilanRow>
+            <BilanRow>
+              <KeyValue label="Dépenses validées" value={fmt(bilan.validees)} valueClassName="text-danger" first mono />
+            </BilanRow>
+            <BilanRow>
+              <KeyValue label="Solde" value={fmt(bilan.solde)} first mono />
+            </BilanRow>
+            {can("rapports") ? (
+              <Button title="Exporter le rapport" variant="outline" block className="mt-2.5" onPress={() => toast("Export PDF généré (démo)")} />
             ) : null}
-          </View>
+          </Card>
         </View>
       ) : null}
 
-      <Button title="Fermer" variant="ghost" block onPress={closeSheet} style={{ marginTop: 14 }} />
+      <Button title="Fermer" variant="ghost" block onPress={closeSheet} className="mt-3.5" />
     </View>
   )
 }

@@ -8,7 +8,7 @@ import {
   StyleSheet,
   View,
 } from "react-native"
-import { colors } from "../constants/theme"
+import { shadows } from "../constants/theme"
 
 interface SheetContextValue {
   openSheet: (content: React.ReactNode) => void
@@ -57,21 +57,19 @@ export function SheetProvider({ children }: { children: React.ReactNode }) {
     <SheetContext.Provider value={{ openSheet, closeSheet }}>
       {children}
       {visible && (
-        <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-          <Animated.View
-            style={[StyleSheet.absoluteFill, styles.backdrop, { opacity: backdropOpacity }]}
-          >
-            <Pressable style={StyleSheet.absoluteFill} onPress={closeSheet} />
+        <View className="absolute inset-0 items-center justify-end" pointerEvents="box-none">
+          {/* Voile (.sheet-overlay) : l'opacité animée reste en style. */}
+          <Animated.View style={[StyleSheet.absoluteFill, { opacity: backdropOpacity }]}>
+            <Pressable className="absolute inset-0 bg-overlay" onPress={closeSheet} accessibilityLabel="Fermer le panneau" />
           </Animated.View>
-          <Animated.View style={[styles.sheet, { transform: [{ translateY }] }]}>
-            <View style={styles.handle} />
-            <ScrollView
-              contentContainerStyle={styles.sheetContent}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-            >
-              {content}
-            </ScrollView>
+          {/* Panneau (.sheet) : fond surface, rayon haut 26 ; translation animée en style. */}
+          <Animated.View style={[{ width: "100%", maxWidth: 640, maxHeight: "88%", transform: [{ translateY }] }, shadows.sheet]}>
+            <View className="shrink rounded-t-sheet bg-surface">
+              <View className="mb-3.5 mt-4 h-1 w-[38px] self-center rounded-[10px] bg-handle" />
+              <ScrollView contentContainerClassName="px-5 pb-[30px]" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                {content}
+              </ScrollView>
+            </View>
           </Animated.View>
         </View>
       )}
@@ -85,37 +83,3 @@ export function useSheet() {
   return ctx
 }
 
-const styles = StyleSheet.create({
-  backdrop: {
-    backgroundColor: "rgba(20,13,20,0.5)",
-  },
-  sheet: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    maxHeight: "88%",
-    backgroundColor: colors.paper,
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
-    shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowRadius: 30,
-    shadowOffset: { width: 0, height: -10 },
-    elevation: 20,
-  },
-  handle: {
-    width: 38,
-    height: 4,
-    borderRadius: 10,
-    backgroundColor: "rgba(46,27,51,0.2)",
-    alignSelf: "center",
-    marginTop: 10,
-    marginBottom: 6,
-  },
-  sheetContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 34,
-    paddingTop: 4,
-  },
-})

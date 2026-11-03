@@ -1,0 +1,34 @@
+declare const palette: Readonly<Record<string, string>> & {
+  readonly navy: string
+  readonly "navy-strong": string
+  readonly slate: string
+  readonly ink: string
+  readonly "ink-soft": string
+  readonly "ink-light": string
+  readonly gold: string
+  readonly "gold-strong": string
+  readonly "gold-soft": string
+  readonly "gold-soft-strong": string
+  readonly "gold-ink": string
+  readonly surface: string
+  readonly "surface-soft": string
+  readonly paper: string
+  readonly line: string
+  readonly "line-strong": string
+  readonly "line-soft": string
+  readonly success: string
+  readonly "success-bg": string
+  readonly warning: string
+  readonly "warning-bg": string
+  readonly danger: string
+  readonly "danger-bg": string
+  readonly "paper-translucent": string
+  readonly overlay: string
+  readonly handle: string
+  readonly "rule-start": string
+  readonly "rule-end": string
+  readonly "gold-35": string
+  readonly "on-navy-muted": string
+  readonly "on-navy-track": string
+}
+export = palette

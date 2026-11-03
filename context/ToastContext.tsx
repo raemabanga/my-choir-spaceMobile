@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useRef, useState } from "react"
-import { Animated, StyleSheet, Text } from "react-native"
-import { colors } from "../constants/theme"
+import { Animated, Text, View } from "react-native"
+import { shadows } from "../constants/theme"
 
 interface ToastContextValue {
   toast: (message: string) => void
@@ -35,11 +35,16 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={{ toast }}>
       {children}
+      {/* Toast (.toast) : pilule navy, texte or pâle, au-dessus de la barre de navigation.
+          Position et animation en style (Animated), apparence en classes. */}
       <Animated.View
         pointerEvents="none"
-        style={[styles.toast, { opacity, transform: [{ translateY }] }]}
+        accessibilityLiveRegion="polite"
+        style={{ position: "absolute", left: 20, right: 20, bottom: 104, alignItems: "center", zIndex: 80, opacity, transform: [{ translateY }] }}
       >
-        <Text style={styles.text}>{message}</Text>
+        <View className="rounded-full bg-navy px-[18px] py-2.5" style={shadows.toast}>
+          <Text className="text-center font-sans-semibold text-[12.5px] text-gold-soft">{message}</Text>
+        </View>
       </Animated.View>
     </ToastContext.Provider>
   )
@@ -51,29 +56,3 @@ export function useToast() {
   return ctx
 }
 
-const styles = StyleSheet.create({
-  toast: {
-    position: "absolute",
-    left: "50%",
-    bottom: 110,
-    marginLeft: -140,
-    width: 280,
-    alignItems: "center",
-    backgroundColor: colors.aubergine,
-    paddingVertical: 12,
-    paddingHorizontal: 18,
-    borderRadius: 100,
-    shadowColor: "#000",
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 8,
-    zIndex: 80,
-  },
-  text: {
-    color: colors.goldSoft,
-    fontFamily: "Inter_700Bold",
-    fontSize: 12.5,
-    textAlign: "center",
-  },
-})

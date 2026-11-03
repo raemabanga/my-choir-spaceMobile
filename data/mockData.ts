@@ -8,20 +8,15 @@ export const MONTHS = [
 export const MENSUALITE = 1000
 export const ANNEE = 2026
 
-export const roleLabels: Record<string, string> = {
-  choriste: "Choriste",
-  bureau: "Bureau exécutif",
-  tresorier: "Trésorier",
-  commissionRecette: "Commission recette",
-  commissionMusicale: "Commission musicale",
-}
+/** Libellés des rôles : mêmes que le web (lib/roles.ts). */
+export { ROLE_LABEL as roleLabels } from "../lib/roles"
 
 export const chorists: Chorist[] = [
-  { id: 1, name: "Aline Mbeki", color: "#8C3A46", roles: ["choriste", "commissionRecette"], numero: "CH-014" },
-  { id: 2, name: "Joseph Nkeng", color: "#3D2A52", roles: ["choriste", "bureau"], fonction: "Secrétaire général", numero: "CH-002", mandat: { debut: "15/01/2025", fin: "15/01/2027" } },
-  { id: 3, name: "Rachel Fotso", color: "#C9A24B", roles: ["choriste", "tresorier"], numero: "CH-007", mandat: { debut: "15/01/2025", fin: "15/01/2027" } },
-  { id: 4, name: "Paul Etoundi", color: "#3F6B4F", roles: ["choriste", "commissionMusicale"], numero: "CH-021" },
-  { id: 5, name: "Grace Ateba", color: "#2E1B33", roles: ["choriste"], numero: "CH-033" },
+  { id: 1, name: "Aline Mbeki", roles: ["choriste", "commission_recette"], numero: "CH-014" },
+  { id: 2, name: "Joseph Nkeng", roles: ["choriste", "bureau", "secretaire"], fonction: "Secrétaire général", numero: "CH-002", mandat: { debut: "15/01/2025", fin: "15/01/2027" } },
+  { id: 3, name: "Rachel Fotso", roles: ["choriste", "tresorier"], numero: "CH-007", mandat: { debut: "15/01/2025", fin: "15/01/2027" } },
+  { id: 4, name: "Paul Etoundi", roles: ["choriste", "commission_musicale"], numero: "CH-021" },
+  { id: 5, name: "Grace Ateba", roles: ["choriste"], numero: "CH-033" },
 ]
 
 export const roleHistory: Record<number, RoleHistoryEntry[]> = {

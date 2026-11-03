@@ -1,8 +1,7 @@
 import DateTimePicker from "@react-native-community/datetimepicker"
 import { useState } from "react"
 import { Platform, Pressable, Text, View } from "react-native"
-import { colors } from "../constants/theme"
-import { FieldLabel } from "./ui"
+import { fieldBoxClasses, FieldLabel } from "./ui"
 
 export function DateField({
   label,
@@ -21,23 +20,8 @@ export function DateField({
     return (
       <View>
         <FieldLabel>{label}</FieldLabel>
-        <View
-          style={{
-            borderRadius: 12,
-            borderWidth: 1.5,
-            borderColor: "rgba(46,27,51,0.15)",
-            backgroundColor: colors.white,
-            alignItems: "flex-start",
-            paddingLeft: 6,
-          }}
-        >
-          <DateTimePicker
-            value={value}
-            mode="date"
-            display="compact"
-            onChange={(_, date) => date && onChange(date)}
-            themeVariant="light"
-          />
+        <View className={`${fieldBoxClasses(false)} items-start pl-1.5`}>
+          <DateTimePicker value={value} mode="date" display="compact" onChange={(_, date) => date && onChange(date)} themeVariant="light" />
         </View>
       </View>
     )
@@ -48,16 +32,11 @@ export function DateField({
       <FieldLabel>{label}</FieldLabel>
       <Pressable
         onPress={() => setShow(true)}
-        style={{
-          borderRadius: 12,
-          borderWidth: 1.5,
-          borderColor: "rgba(46,27,51,0.15)",
-          backgroundColor: colors.white,
-          paddingVertical: 11,
-          paddingHorizontal: 13,
-        }}
+        accessibilityRole="button"
+        accessibilityLabel={`${label} : ${formatted}`}
+        className={`${fieldBoxClasses(false)} min-h-touch justify-center px-[13px]`}
       >
-        <Text style={{ fontSize: 13.5, color: colors.ink }}>{formatted}</Text>
+        <Text className="font-sans text-[13.5px] text-ink">{formatted}</Text>
       </Pressable>
       {show ? (
         <DateTimePicker
