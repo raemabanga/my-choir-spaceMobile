@@ -1,5 +1,8 @@
 import type { Evenement } from "../types"
 
+/** Abréviations des mois (0 = janvier), comme sur les cartes de cotisation. */
+export const MONTHS = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"]
+
 export function fmt(n: number) {
   return n.toLocaleString("fr-FR") + " FCFA"
 }
@@ -57,6 +60,15 @@ export function eventBilan(ev: Evenement) {
 }
 
 /** Prochain événement daté à venir, sinon le plus récent. */
+/** Les `n` prochains événements datés (aujourd'hui compris), du plus proche au plus lointain. */
+export function upcomingEvents(events: Evenement[], n: number): Evenement[] {
+  const today = todayISO()
+  return events
+    .filter((e) => e.date && e.date >= today)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(0, n)
+}
+
 export function nextEvent(events: Evenement[]): Evenement | undefined {
   const today = todayISO()
   const sorted = events.filter((e) => e.date).sort((a, b) => a.date.localeCompare(b.date))

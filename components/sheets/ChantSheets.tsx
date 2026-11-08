@@ -3,29 +3,24 @@ import { View } from "react-native"
 import { errorMessage, useApp } from "../../context/AppContext"
 import { useSheet } from "../../context/SheetContext"
 import { useToast } from "../../context/ToastContext"
-import { Chant } from "../../types"
 import { Button, Field, FieldLabel, FormRow2, Select, SheetTitle } from "../ui"
 
 // Formulaire du répertoire (openChantForm() du prototype). Le détail d'un chant est une page : app/chant/[id].tsx.
 
-export function ChantFormSheet({ chant }: { chant?: Chant }) {
-  const { saveChant, parametres } = useApp()
+/** Ajout d'un chant au répertoire (l'API ne permet pas encore de modifier un chant). */
+export function ChantFormSheet() {
+  const { createChant, parametres } = useApp()
   const { closeSheet } = useSheet()
   const { toast } = useToast()
-  // Catégories de la chorale (Paramètres du portail web) ; celle d'un chant modifié reste proposée
-  // même si elle a été retirée de la liste depuis.
-  const categories = [...new Set([...parametres.categoriesChant, ...(chant?.categorie ? [chant.categorie] : [])])]
-  // Tonalités de la chorale (facultative : « Non précisée ») ; même règle pour celle d'un chant modifié.
-  const tonalites = [
-    { label: "Non précisée", value: "" },
-    ...[...new Set([...parametres.tonalitesChant, ...(chant?.tonalite ? [chant.tonalite] : [])])].map((t) => ({ label: t, value: t })),
-  ]
+  // Catégories et tonalités de la chorale (Paramètres du portail web) ; tonalité facultative.
+  const categories = parametres.categoriesChant
+  const tonalites = [{ label: "Non précisée", value: "" }, ...parametres.tonalitesChant.map((t) => ({ label: t, value: t }))]
 
-  const [titre, setTitre] = useState(chant?.titre ?? "")
-  const [compositeur, setCompositeur] = useState(chant?.compositeur ?? "")
-  const [tonalite, setTonalite] = useState(chant?.tonalite ?? "")
-  const [categorie, setCategorie] = useState(chant?.categorie ?? categories[0] ?? "")
-  const [paroles, setParoles] = useState(chant?.paroles ?? "")
+  const [titre, setTitre] = useState("")
+  const [compositeur, setCompositeur] = useState("")
+  const [tonalite, setTonalite] = useState("")
+  const [categorie, setCategorie] = useState(categories[0] ?? "")
+  const [paroles, setParoles] = useState("")
   const [busy, setBusy] = useState(false)
 
   async function confirm() {
@@ -36,7 +31,7 @@ export function ChantFormSheet({ chant }: { chant?: Chant }) {
     }
     setBusy(true)
     try {
-      await saveChant(chant?.id ?? null, {
+      await createChant({
         titre: titre.trim(),
         compositeur: compositeur.trim(),
         categorie: categorie.trim() || "Non classé",
@@ -44,7 +39,7 @@ export function ChantFormSheet({ chant }: { chant?: Chant }) {
         paroles,
       })
       closeSheet()
-      toast(chant ? "Chant modifié" : "Chant ajouté au répertoire")
+      toast("Chant ajouté au répertoire")
     } catch (e) {
       toast(errorMessage(e))
       setBusy(false)
@@ -55,7 +50,7 @@ export function ChantFormSheet({ chant }: { chant?: Chant }) {
 
   return (
     <View>
-      <SheetTitle>{chant ? "Modifier le chant" : "Ajouter un chant"}</SheetTitle>
+      <SheetTitle>Ajouter un chant</SheetTitle>
       <Field label="Titre" value={titre} onChangeText={setTitre} />
       <FormRow2>
         <Field label="Compositeur / auteur" value={compositeur} onChangeText={setCompositeur} />

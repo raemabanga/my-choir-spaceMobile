@@ -1,4 +1,4 @@
-// Composants partagés — design system My Choir Space (carte, pastille, bouton, progression,
+// Composants partagés — design system Harmonix (carte, pastille, bouton, progression,
 // case de mois, filtre, avatar, ligne de liste, état vide, recherche, champs, QR…).
 // Style en classes NativeWind (tailwind.config.js) ; `style` n'est utilisé que pour les ombres,
 // les valeurs calculées et les props des composants tiers.
@@ -571,12 +571,27 @@ export function Seal({ month, paid, clickable, onPress }: { month: string; paid:
  * Seul motif décoratif du design system : grands cercles doux (LUNA 500) sur un bloc marine.
  * Réservé à la connexion et à l'en-tête de l'accueil. Le parent doit être `relative overflow-hidden`.
  */
-export function NavyCircles() {
+/**
+ * Motif décoratif de cercles. `navy` (défaut) : sur un bandeau marine, en haut.
+ * `paper` : version pâle pour un fond blanc, ancrée en bas pour ne pas gêner la lecture des champs.
+ * Le parent doit être `relative overflow-hidden`.
+ */
+export function NavyCircles({ variant = "navy" }: { variant?: "navy" | "paper" }) {
   return (
     <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" className="absolute inset-0">
-      <View className="absolute -left-16 -top-20 h-56 w-56 rounded-full bg-luna-500 opacity-60" />
-      <View className="absolute -right-12 top-10 h-40 w-40 rounded-full bg-luna-500 opacity-70" />
-      <View className="absolute -bottom-24 left-1/3 h-44 w-44 rounded-full bg-luna-500 opacity-40" />
+      {variant === "navy" ? (
+        <>
+          <View className="absolute -left-16 -top-20 h-56 w-56 rounded-full bg-luna-500 opacity-60" />
+          <View className="absolute -right-12 top-10 h-40 w-40 rounded-full bg-luna-500 opacity-70" />
+          <View className="absolute -bottom-24 left-1/3 h-44 w-44 rounded-full bg-luna-500 opacity-40" />
+        </>
+      ) : (
+        <>
+          <View className="absolute -bottom-20 -right-16 h-56 w-56 rounded-full bg-luna-100 opacity-30" />
+          <View className="absolute -left-12 bottom-24 h-40 w-40 rounded-full bg-luna-50" />
+          <View className="absolute -bottom-28 right-1/3 h-44 w-44 rounded-full bg-luna-100 opacity-20" />
+        </>
+      )}
     </View>
   )
 }

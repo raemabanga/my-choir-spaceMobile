@@ -19,6 +19,8 @@ import {
   setCompteActif,
   type Compte,
 } from "../../lib/api"
+import { dataChanged } from "../../lib/offline"
+import { compteRepository } from "../../lib/offline/entities"
 import { BASIC_ROLES, INITIAL_ROLES, MANDATE_ROLES, ROLE_LABEL } from "../../lib/roles"
 import type { Role } from "../../types"
 import { Button, Card, cx, Field, FormRow2, KeyValue, Muted, Pill, RowBetween, SectionHeader, Select, SheetTitle } from "../ui"
@@ -27,21 +29,36 @@ import { Button, Card, cx, Field, FormRow2, KeyValue, Muted, Pill, RowBetween, S
 
 // Le contenu d'un sheet est figé au moment de `openSheet` : il ne suit pas l'état de l'écran.
 // La liste des comptes vit donc dans ce petit store, lu par l'écran et par les sheets.
+// Mode hors ligne : la liste est la copie enregistrée sur le téléphone (lisible sans réseau) ;
+// chaque compte renvoyé par l'API après une modification y est rangé.
 let comptesState: Compte[] = []
 const listeners = new Set<() => void>()
 
+/** Relit les comptes enregistrés sur le téléphone. */
+function relireComptes() {
+  try {
+    comptesState = compteRepository.getAll().map((r) => r.data)
+  } catch {
+    comptesState = [] // Mode hors ligne indisponible (base non ouverte).
+  }
+  listeners.forEach((l) => l())
+}
+
+// Téléchargement ou modification : la liste suit la copie locale.
+dataChanged.subscribe((entity) => {
+  if (entity === "comptes" || entity === "*") relireComptes()
+})
+
 export const comptesStore = {
   get: () => comptesState,
-  set(next: Compte[]) {
-    comptesState = next
-    listeners.forEach((l) => l())
-  },
-  /** Remplace un compte par sa version renvoyée par l'API. */
+  /** Relit la copie locale (à l'ouverture de l'écran). */
+  reload: relireComptes,
+  /** Range un compte renvoyé par l'API (modification faite en ligne). */
   replace(compte: Compte) {
-    comptesStore.set(comptesState.map((c) => (c.id === compte.id ? compte : c)))
+    compteRepository.syncFromServer([{ serverId: compte.id, data: compte }])
   },
   add(compte: Compte) {
-    comptesStore.set([compte, ...comptesState.filter((c) => c.id !== compte.id)])
+    compteRepository.syncFromServer([{ serverId: compte.id, data: compte }])
   },
   subscribe(listener: () => void) {
     listeners.add(listener)
@@ -59,25 +76,24 @@ export function useComptes() {
 
 /** Mêmes règles que l'API et le portail web. */
 export function useDroitsCompte() {
-  const { session, isDemo, can, currentUser } = useApp()
+  const { session, can } = useApp()
   const full = can("comptesFull")
   const base = can("comptes")
 
   return (compte: Compte) => {
-    // En démonstration, pas de session : « soi-même » = le choriste de démonstration connecté.
-    const estMoi = session ? compte.membershipId === session.membershipId : currentUser?.id === compte.id
+    const estMoi = session !== null && compte.membershipId === session.membershipId
     // Le compte d'un Admin de chorale se gère depuis le back-office.
     const estAdminProtege = !estMoi && compte.roles.includes("admin_chorale")
     // Le secrétaire ne gère que les comptes Choriste / Commissions.
     const roleGerable = full || compte.roles.every((r) => BASIC_ROLES.includes(r))
-    const gerable = !isDemo && base && roleGerable && !estAdminProtege
+    const gerable = base && roleGerable && !estAdminProtege
     return {
       estMoi,
       estAdminProtege,
-      peutModifier: gerable || (!isDemo && base && estMoi),
+      peutModifier: gerable || (base && estMoi),
       peutChangerStatut: gerable && !estMoi,
       peutReinitialiser: full && gerable && !estMoi,
-      peutGererRoles: !isDemo && full && !estAdminProtege,
+      peutGererRoles: full && !estAdminProtege,
     }
   }
 }
@@ -178,7 +194,6 @@ function Confirmation({
 type Demande = { type: "revoquer"; role: Role } | { type: "statut" } | { type: "mdp" } | null
 
 export function CompteDetailSheet({ compteId }: { compteId: number }) {
-  const { isDemo } = useApp()
   const { openSheet, closeSheet } = useSheet()
   const { toast } = useToast()
   const comptes = useComptes()
@@ -348,9 +363,8 @@ export function CompteDetailSheet({ compteId }: { compteId: number }) {
 
       <ErrorBanner message={erreur} />
 
-      {isDemo ? <Muted className="mt-4">Mode démonstration : aucune modification possible.</Muted> : null}
-      {!isDemo && aucuneAction && !d.estAdminProtege ? (
-        <Muted className="mt-4">Vous ne pouvez pas modifier ce compte : seuls l'Admin de chorale et le Bureau exécutif gèrent les comptes à mandat.</Muted>
+      {aucuneAction && !d.estAdminProtege ? (
+        <Muted className="mt-4">Vous ne pouvez pas modifier ce compte : seuls l'Admin de chorale, le Bureau exécutif et le Secrétariat gèrent les comptes à mandat.</Muted>
       ) : null}
 
       <View className="mt-5 gap-2">

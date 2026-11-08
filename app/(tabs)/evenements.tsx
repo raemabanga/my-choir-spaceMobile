@@ -4,8 +4,10 @@ import { Text, View } from "react-native"
 import { Screen } from "../../components/layout"
 import { EventDetailSheet, EventFormSheet } from "../../components/sheets/EventSheets"
 import { Button, Card, CardTitle, Muted, Pill, RowBetween } from "../../components/ui"
-import { useApp } from "../../context/AppContext"
+import { errorMessage, useApp } from "../../context/AppContext"
 import { useSheet } from "../../context/SheetContext"
+import { useToast } from "../../context/ToastContext"
+import { RecordSyncBadge } from "../../components/sync"
 import { eventBilan, fmt, formatDateLong } from "../../lib/format"
 
 /** Chiffres en Geist Mono imbriqués dans un texte muted (taille et couleur héritées). */
@@ -14,8 +16,16 @@ const NUM = "font-sans-medium tabular-nums"
 const STRONG_AMOUNT = "font-sans-semibold tabular-nums"
 
 export default function EvenementsScreen() {
-  const { events, can, isDemo } = useApp()
+  const { events, can, toggleInscription } = useApp()
   const { openSheet } = useSheet()
+  const { toast } = useToast()
+
+  /** S'inscrire ou se désinscrire depuis la carte (marche aussi hors ligne). */
+  function inscription(eventId: number, inscrire: boolean) {
+    toggleInscription(eventId, inscrire)
+      .then(() => toast(inscrire ? "Inscription enregistrée" : "Désinscription enregistrée"))
+      .catch((e) => toast(errorMessage(e)))
+  }
 
   return (
     <Screen title="Événements">
@@ -32,14 +42,19 @@ export default function EvenementsScreen() {
             </RowBetween>
             <Muted>
               <Text className={NUM}>{formatDateLong(ev.date)}</Text>
-              {/* Inscriptions : démonstration uniquement (pas encore gérées par l'API). */}
-              {isDemo ? (
+              {ev.inscriptionsOuvertes || ev.inscrit ? (
                 <>
                   {" · "}
-                  <Text className={NUM}>{ev.inscrits.length}</Text> inscrit(s)
+                  <Text className={NUM}>{ev.inscrits?.length ?? 0}</Text> inscrit{(ev.inscrits?.length ?? 0) > 1 ? "s" : ""}
+                  {ev.inscrit ? " · vous êtes inscrit(e)" : ""}
                 </>
               ) : null}
             </Muted>
+            {ev.syncStatus && ev.syncStatus !== "synced" ? (
+              <View className="mt-1.5">
+                <RecordSyncBadge status={ev.syncStatus} />
+              </View>
+            ) : null}
             {can("budget") ? (
               <View className="mt-2.5">
                 <RowBetween>
@@ -51,6 +66,16 @@ export default function EvenementsScreen() {
                   </Muted>
                 </RowBetween>
               </View>
+            ) : null}
+            {/* Inscription directement sur la carte : pas besoin d'ouvrir le détail. */}
+            {ev.inscrit || ev.inscriptionsOuvertes ? (
+              <Button
+                title={ev.inscrit ? "Se désinscrire" : "S'inscrire"}
+                variant={ev.inscrit ? "outline" : "primary"}
+                small
+                className="mt-3"
+                onPress={() => inscription(ev.id, !ev.inscrit)}
+              />
             ) : null}
           </Card>
         )

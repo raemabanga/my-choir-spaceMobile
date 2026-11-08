@@ -1,7 +1,7 @@
 // Écran « Comptes & Rôles » : équivalent mobile du module web (components/portail/modules/comptes.tsx).
 // Liste de cartes + bottom sheets (components/sheets/CompteSheets.tsx) au lieu du tableau du web.
 
-import { Info, Lock, UserRound } from "lucide-react-native"
+import { Lock, UserRound } from "lucide-react-native"
 import React, { useCallback, useEffect, useMemo, useState } from "react"
 import { ActivityIndicator, RefreshControl, ScrollView, Text, View } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
@@ -12,7 +12,9 @@ import { Avatar, Button, Card, Chevron, Chip, ChipsRow, EmptyState, Muted, Pill,
 import { colors } from "../constants/theme"
 import { useApp } from "../context/AppContext"
 import { useSheet } from "../context/SheetContext"
-import { ApiError, fetchComptes, type Compte } from "../lib/api"
+import { useSyncSummary } from "../hooks/offline"
+import { type Compte } from "../lib/api"
+import { syncManager } from "../lib/offline"
 import { ROLE_LABEL } from "../lib/roles"
 
 type Filtre = "tous" | "actifs" | "desactives"
@@ -48,61 +50,49 @@ function CompteCard({ compte, estMoi, protege, onPress }: { compte: Compte; estM
           </Pill>
         ))}
       </View>
+      {compte.motDePasseTemporaire ? (
+        // Tant que le membre n'a pas choisi son mot de passe : à lui transmettre.
+        <View className="mt-2.5 flex-row items-center gap-2">
+          <Muted className="text-[12px]">Mot de passe temporaire</Muted>
+          <Text selectable className="rounded-md bg-surface-soft px-2 py-0.5 font-mono-medium text-[12.5px] tracking-wide text-ink">
+            {compte.motDePasseTemporaire}
+          </Text>
+        </View>
+      ) : null}
       {protege ? <Muted className="mt-2 text-[11.5px]">Géré depuis le back-office</Muted> : null}
     </Card>
   )
 }
 
 export default function ComptesScreen() {
-  const { isDemo, can, chorists } = useApp()
+  const { can } = useApp()
   const { openSheet } = useSheet()
   const comptes = useComptes()
   const droitsSur = useDroitsCompte()
   const autorise = can("comptes")
 
-  const [loading, setLoading] = useState(!isDemo)
+  const { isOnline } = useSyncSummary()
+  const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [erreur, setErreur] = useState<string | null>(null)
   const [recherche, setRecherche] = useState("")
   const [filtre, setFiltre] = useState<Filtre>("tous")
 
+  /** Met à jour la copie locale depuis le serveur (sans réseau : la copie du téléphone reste affichée). */
   const charger = useCallback(async () => {
     setErreur(null)
-    try {
-      comptesStore.set(await fetchComptes())
-    } catch (e) {
-      setErreur(e instanceof ApiError ? e.message : "Impossible de charger les comptes. Réessayez.")
-    }
+    const resultat = await syncManager.refreshEntity("comptes")
+    const echec = resultat.errors.find((e) => e.entity === "comptes")
+    if (echec) setErreur(echec.message)
   }, [])
 
-  // Démonstration : liste en lecture seule construite depuis les choristes, sans appel à l'API.
   useEffect(() => {
     if (!autorise) return
-    if (isDemo) {
-      comptesStore.set(
-        chorists.map((c) => {
-          const [prenom = "", ...reste] = c.name.split(" ")
-          return {
-            id: c.id,
-            membershipId: c.id,
-            nom: c.name,
-            prenom,
-            nomDeFamille: reste.join(" "),
-            telephone: "",
-            email: "",
-            roles: c.roles,
-            statut: "actif",
-            historique: [],
-          } satisfies Compte
-        })
-      )
-      setLoading(false)
-      return
-    }
-    comptesStore.set([])
-    setLoading(true)
+    // Copie du téléphone affichée tout de suite (marche hors ligne), puis mise à jour.
+    comptesStore.reload()
+    setLoading(comptesStore.get().length === 0)
     charger().finally(() => setLoading(false))
-  }, [autorise, isDemo, chorists, charger])
+  }, [autorise, charger])
 
   const rafraichir = useCallback(async () => {
     setRefreshing(true)
@@ -134,7 +124,7 @@ export default function ComptesScreen() {
         contentContainerClassName="pb-7 pt-4"
         keyboardShouldPersistTaps="handled"
         refreshControl={
-          !isDemo && autorise ? (
+          autorise ? (
             // Composant tiers : couleur passée en props.
             <RefreshControl refreshing={refreshing} onRefresh={rafraichir} tintColor={colors.navy} colors={[colors.navy]} />
           ) : undefined
@@ -145,15 +135,15 @@ export default function ComptesScreen() {
             <EmptyState icon={Lock} title="Accès réservé" subtitle="La gestion des comptes est réservée à l’Admin de chorale, au Bureau exécutif et au Secrétaire général." />
           ) : (
             <>
-              {isDemo ? (
-                <View className="mb-3.5 flex-row gap-2.5 rounded-card border border-gold-35 bg-gold-soft p-3.5">
-                  <Info size={18} color={colors.goldInk} strokeWidth={2} />
-                  <Text className="flex-1 font-sans text-[12.5px] text-gold-ink">
-                    Mode démonstration : connectez-vous avec un vrai compte pour gérer les comptes.
+              {isOnline ? (
+                <Button title="+ Créer un compte" block className="mb-3.5" onPress={() => openSheet(<CompteFormSheet />)} />
+              ) : (
+                // Hors ligne : la liste enregistrée sur le téléphone reste consultable.
+                <View className="mb-3.5 rounded-card border border-line bg-warning-bg p-3.5">
+                  <Text className="font-sans text-[13px] text-warning">
+                    Hors connexion : comptes enregistrés sur le téléphone. La création et la modification des comptes demandent internet.
                   </Text>
                 </View>
-              ) : (
-                <Button title="+ Créer un compte" block className="mb-3.5" onPress={() => openSheet(<CompteFormSheet />)} />
               )}
 
               <SearchBar

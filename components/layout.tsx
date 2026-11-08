@@ -3,8 +3,10 @@ import { RefreshControl, ScrollView, ScrollViewProps, Text, View } from "react-n
 import { SafeAreaView } from "react-native-safe-area-context"
 import { colors } from "../constants/theme"
 import { useApp } from "../context/AppContext"
+import { useSyncSummary } from "../hooks/offline"
 import { useResponsive } from "../lib/responsive"
 import { AppHeader } from "./AppHeader"
+import { OfflineBanner } from "./sync"
 import { cx } from "./ui"
 
 export { useResponsive }
@@ -37,6 +39,9 @@ export function Screen({
   hero?: React.ReactNode
 }) {
   const { session, syncing, syncError, refresh } = useApp()
+  const { isOnline } = useSyncSummary()
+  /** Tirer vers le bas : envoie les modifications hors ligne et retélécharge tout (refresh = forceSync). */
+  const onRefresh = refresh
   return (
     <SafeAreaView className={hero ? "flex-1 bg-navy" : "flex-1 bg-paper"} edges={["top"]}>
       {hero ? null : <AppHeader title={title} />}
@@ -48,7 +53,7 @@ export function Screen({
           session ? (
             <RefreshControl
               refreshing={syncing}
-              onRefresh={refresh}
+              onRefresh={onRefresh}
               tintColor={hero ? colors.paper : colors.navy}
               colors={[colors.navy]}
             />
@@ -58,7 +63,9 @@ export function Screen({
       >
         {hero}
         <Container>
-          {session && syncError ? (
+          {session ? <OfflineBanner className="mb-3" /> : null}
+          {/* Hors ligne, la bannière ci-dessus suffit : l'échec de chargement est attendu. */}
+          {session && syncError && isOnline ? (
             <View className="mb-3 rounded-field border border-danger bg-danger-bg px-3 py-2.5">
               <Text className="font-sans text-[13px] text-danger">{syncError}</Text>
             </View>

@@ -3,13 +3,14 @@ import { Text, View } from "react-native"
 import { DateField } from "../DateField"
 import { Avatar, Button, Card, Field, KeyValue, ListRow, Muted, Pill, ProgressBar, QrPlaceholder, RowBetween, SectionHeader, Select, SheetTitle } from "../ui"
 
-import { MONTHS } from "../../data/mockData"
-import { fmt } from "../../lib/format"
+import { fmt, MONTHS } from "../../lib/format"
 import type { DetailsPaiement } from "../../lib/api"
 import { errorMessage, useApp } from "../../context/AppContext"
+import { parId } from "../../context/choraleData"
 import { useSheet } from "../../context/SheetContext"
 import { useToast } from "../../context/ToastContext"
 import { Recu } from "../../types"
+import { RecordSyncBadge } from "../sync"
 
 
 /**
@@ -31,7 +32,7 @@ function SheetActions({ onConfirm, onCancel, busy }: { onConfirm: () => void; on
 }
 
 /**
- * Enregistre un paiement (API ou démonstration) : bouton désactivé pendant l'envoi,
+ * Enregistre un paiement auprès de l'API : bouton désactivé pendant l'envoi,
  * erreur du serveur affichée telle quelle (ex. « Le mois de mars 2026 est déjà payé »).
  */
 function usePaymentSubmit() {
@@ -108,6 +109,58 @@ export function PaymentSheet({ chorishId, monthIndex, year }: { chorishId: numbe
   )
 }
 
+/* --------------------------- Confirmation d'un mois (carte de cotisation) --------------------------- */
+
+const MOIS_LONGS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"]
+
+/**
+ * Toucher un mois impayé de la carte : confirmation du paiement (mensualité, payée aujourd'hui,
+ * mode de règlement par défaut). « Modifier » ouvre le formulaire complet (PaymentSheet).
+ */
+export function PaymentConfirmSheet({ chorishId, monthIndex, year }: { chorishId: number; monthIndex: number; year: number }) {
+  const { chorists, confirmPaymentStatutaire, mensualite, parametres } = useApp()
+  const { openSheet, closeSheet } = useSheet()
+  const { busy, submit } = usePaymentSubmit()
+  const chorist = chorists.find((c) => c.id === chorishId)
+  const mode = parametres.modesReglement[0]
+  const mois = MOIS_LONGS[monthIndex] + " " + year
+
+  function confirm() {
+    submit(() =>
+      confirmPaymentStatutaire(chorishId, monthIndex, mensualite, year, {
+        datePaiement: localISODate(new Date()),
+        mode: mode?.code ?? "ESPECES",
+      })
+    )
+  }
+
+  return (
+    <View>
+      <SheetTitle>Confirmer la cotisation</SheetTitle>
+      <Muted>
+        Enregistrer le paiement de la cotisation de {mois} pour {chorist?.name ?? "ce choriste"} ? Le reçu est généré aussitôt.
+      </Muted>
+      <Card className="mt-3">
+        <KeyValue label="Choriste" value={chorist?.name ?? "—"} first />
+        <KeyValue label="Mois" value={mois.charAt(0).toUpperCase() + mois.slice(1)} />
+        <KeyValue label="Montant" value={fmt(mensualite)} mono />
+        <KeyValue label="Payé le" value={new Date().toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })} />
+        <KeyValue label="Mode de règlement" value={mode?.label ?? "Espèces"} />
+      </Card>
+      <Button title={busy ? "Enregistrement…" : "Confirmer le paiement"} onPress={confirm} disabled={busy} block className="mt-2" />
+      <Button
+        title="Modifier le montant, la date ou le mode"
+        variant="outline"
+        block
+        className="mt-2"
+        disabled={busy}
+        onPress={() => openSheet(<PaymentSheet chorishId={chorishId} monthIndex={monthIndex} year={year} />)}
+      />
+      <Button title="Annuler" variant="ghost" onPress={closeSheet} block className="mt-2" />
+    </View>
+  )
+}
+
 /* --------------------------- Paiement rapide (choix choriste + mois) --------------------------- */
 
 export function QuickPaymentSheet() {
@@ -157,7 +210,7 @@ export function QuickPaymentSheet() {
 export function EventCotisationSheet({ eventId, chorishId }: { eventId: number; chorishId: number }) {
   const { events, chorists, can, recus } = useApp()
   const { openSheet, closeSheet } = useSheet()
-  const ev = events.find((e) => e.id === eventId)
+  const ev = parId(events, eventId)
   const chorist = chorists.find((c) => c.id === chorishId)
   if (!ev || !chorist) return null
 
@@ -165,7 +218,7 @@ export function EventCotisationSheet({ eventId, chorishId }: { eventId: number; 
   const remaining = Math.max(0, ev.cotisationMontant - paid)
   const canPay = can("paiements")
   // Reçu le plus récent de ce choriste pour cet événement.
-  const receipt = recus.find((r) => r.chorishId === chorishId && (r.eventId != null ? r.eventId === eventId : r.label === ev.titre))
+  const receipt = recus.find((r) => r.chorishId === chorishId && (r.eventId != null ? r.eventId === ev.id : r.label === ev.titre))
 
   return (
     <View>
@@ -221,7 +274,7 @@ export function EventPaymentSheet({ eventId, chorishId }: { eventId: number; cho
   const { toast } = useToast()
   const { busy, submit } = usePaymentSubmit()
   const { details, champs } = useDetailsPaiement()
-  const ev = events.find((e) => e.id === eventId)
+  const ev = parId(events, eventId)
   const chorist = chorists.find((c) => c.id === chorishId)
   const remaining = ev ? Math.max(0, ev.cotisationMontant - (ev.contributions[chorishId] || 0)) : 0
   const [amount, setAmount] = useState(String(remaining))
@@ -250,9 +303,37 @@ export function EventPaymentSheet({ eventId, chorishId }: { eventId: number; cho
 
 /* --------------------------- Reçu numérique (.receipt) --------------------------- */
 
-export function ReceiptSheet({ receipt }: { receipt: Pick<Recu, "id" | "chorishId" | "label" | "montant" | "date" | "enregistrePar" | "mode"> }) {
-  const { chorists, choraleNom, parametres } = useApp()
+export function ReceiptSheet({
+  receipt,
+}: {
+  receipt: Pick<Recu, "id" | "chorishId" | "label" | "montant" | "date" | "enregistrePar" | "mode" | "localId" | "syncStatus">
+}) {
+  const { chorists, choraleNom, parametres, can, cancelPayment } = useApp()
   const { closeSheet } = useSheet()
+  const { toast } = useToast()
+  const [annulation, setAnnulation] = useState(false)
+  const [motif, setMotif] = useState("")
+  const [busy, setBusy] = useState(false)
+  // Paiement refusé avant d'atteindre le serveur : il se retire simplement (pas de motif).
+  const nonEnvoye = receipt.syncStatus === "failed" && receipt.id === "En attente"
+  const peutAnnuler = !!receipt.localId && (nonEnvoye || can("paiementsAnnuler"))
+
+  async function confirmerAnnulation() {
+    if (busy || !receipt.localId) return
+    if (!nonEnvoye && !motif.trim()) {
+      toast("Indiquez le motif de l'annulation")
+      return
+    }
+    setBusy(true)
+    try {
+      await cancelPayment(receipt.localId, nonEnvoye ? "Paiement non envoyé" : motif)
+      closeSheet()
+      toast(nonEnvoye ? "Paiement retiré" : "Paiement annulé — le reçu n'est plus valable")
+    } catch (e) {
+      toast(errorMessage(e))
+      setBusy(false)
+    }
+  }
   const chorist = chorists.find((c) => c.id === receipt.chorishId)
   // Libellé du mode (code inconnu, ex. mode supprimé depuis : le code lui-même).
   const mode = receipt.mode ? (parametres.modesReglement.find((m) => m.code === receipt.mode)?.label ?? receipt.mode) : null
@@ -260,12 +341,22 @@ export function ReceiptSheet({ receipt }: { receipt: Pick<Recu, "id" | "chorishI
   return (
     <View>
       <SheetTitle>Reçu numérique</SheetTitle>
+      {receipt.syncStatus && receipt.syncStatus !== "synced" ? (
+        <View className="mt-1 flex-row items-center gap-2">
+          <RecordSyncBadge status={receipt.syncStatus} />
+          <Muted className="shrink">
+            {receipt.syncStatus === "pending"
+              ? "Enregistré sur le téléphone : le numéro de reçu sera attribué à l'envoi."
+              : "Le serveur a refusé ce paiement."}
+          </Muted>
+        </View>
+      ) : null}
 
       <View className="mt-3 rounded-card border border-line bg-paper p-[22px]">
         <View className="rounded-field border border-dashed border-line-strong p-[18px]">
           {/* Réserve à droite pour ne pas passer sous le tampon sur petit écran. */}
           <View className="pr-14">
-            <Text className="font-mono-medium text-[12px] text-ink-light">N° {receipt.id}</Text>
+            <Text className="font-mono-medium text-[12px] text-ink-light">{receipt.id === "En attente" ? "N° en attente" : "N° " + receipt.id}</Text>
             <Text className="mb-3.5 mt-1.5 font-sans-bold text-[18.5px] tracking-[-0.2px] text-navy">{choraleNom}</Text>
           </View>
 
@@ -295,7 +386,36 @@ export function ReceiptSheet({ receipt }: { receipt: Pick<Recu, "id" | "chorishI
         </View>
       </View>
 
-      <Button title="Fermer" variant="ghost" block onPress={closeSheet} className="mt-4" />
+      {peutAnnuler ? (
+        annulation ? (
+          <Card className="mt-4">
+            {nonEnvoye ? (
+              <Muted>Retirer ce paiement qui n'a pas pu être envoyé ?</Muted>
+            ) : (
+              <Field label="Motif de l'annulation" placeholder="Ex : saisi par erreur" value={motif} onChangeText={setMotif} first />
+            )}
+            <Button
+              title={busy ? "Annulation…" : nonEnvoye ? "Retirer le paiement" : "Confirmer l'annulation"}
+              variant="danger"
+              block
+              className="mt-3"
+              disabled={busy}
+              onPress={confirmerAnnulation}
+            />
+            <Button title="Garder le paiement" variant="ghost" block className="mt-2" onPress={() => setAnnulation(false)} />
+          </Card>
+        ) : (
+          <Button
+            title={nonEnvoye ? "Retirer ce paiement" : "Annuler ce paiement"}
+            variant="danger"
+            block
+            className="mt-4"
+            onPress={() => setAnnulation(true)}
+          />
+        )
+      ) : null}
+
+      <Button title="Fermer" variant="ghost" block onPress={closeSheet} className="mt-2" />
     </View>
   )
 }

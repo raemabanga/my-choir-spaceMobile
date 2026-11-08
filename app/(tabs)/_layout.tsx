@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { cx } from "../../components/ui"
 import { colors } from "../../constants/theme"
 import { useApp } from "../../context/AppContext"
+import { useOuvertureNotifications } from "../../hooks/useOuvertureNotifications"
 
 // Barre de navigation basse : fond blanc, onglet actif marine (trait 2) avec point turquoise.
 function TabItem({ icon: Icon, label, focused }: { icon: LucideIcon; label: string; focused: boolean }) {
@@ -30,6 +31,8 @@ const TABS: { name: string; label: string; icon: LucideIcon }[] = [
 export default function TabsLayout() {
   const { userId, session, authReady } = useApp()
   const insets = useSafeAreaInsets()
+  // Notification push touchée : écran concerné (une fois connecté, mot de passe choisi).
+  useOuvertureNotifications(authReady && userId !== null && !session?.doitChangerMotDePasse)
   if (!authReady) return null
   if (!userId) return <Redirect href="/login" />
   // Mot de passe temporaire : l'API refuse les autres routes tant qu'il n'est pas changé.

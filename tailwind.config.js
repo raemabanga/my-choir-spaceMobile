@@ -1,5 +1,5 @@
 /** @type {import('tailwindcss').Config} */
-// Design system NativeWind — My Choir Space (palette LUNA), identique au portail web et au back-office.
+// Design system NativeWind — Harmonix (palette LUNA), identique au portail web et au back-office.
 // Couleurs : constants/palette.js (source unique, partagée avec constants/theme.ts).
 const palette = require("./constants/palette")
 

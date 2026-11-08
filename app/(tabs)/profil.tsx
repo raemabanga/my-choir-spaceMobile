@@ -5,22 +5,19 @@ import { Text, View } from "react-native"
 import { Screen } from "../../components/layout"
 import { ReceiptSheet } from "../../components/sheets/CotisationSheets"
 import { Receipt } from "lucide-react-native"
-import { Avatar, Button, Card, CardTitle, Chevron, EmptyState, ListRow, Muted, Pill, RowBetween, SectionHeader } from "../../components/ui"
+import { Avatar, Button, Card, CardTitle, Chevron, EmptyState, ListRow, Muted, Pill, SectionHeader } from "../../components/ui"
 import { useApp } from "../../context/AppContext"
 import { useSheet } from "../../context/SheetContext"
-import { useToast } from "../../context/ToastContext"
 import { fmt } from "../../lib/format"
 
 export default function ProfilScreen() {
-  const { currentUser, chorists, roleLabels, roleHistory, receiptsFor, loginAs, logout, isDemo, can } = useApp()
+  const { currentUser, roleHistory, receiptsFor, logout, can } = useApp()
   const { openSheet } = useSheet()
-  const { toast } = useToast()
 
   if (!currentUser) return null
 
   const hist = roleHistory[currentUser.id] ?? []
   const myReceipts = receiptsFor(currentUser.id)
-  const others = chorists.filter((c) => c.id !== currentUser.id)
 
   return (
     <Screen title="Profil">
@@ -33,21 +30,6 @@ export default function ProfilScreen() {
             Membre n° <Text className="font-sans-medium tabular-nums">{currentUser.numero}</Text>
           </Muted>
         </View>
-      </Card>
-
-      <SectionHeader title="Rôles actuels" />
-      <Card>
-        {currentUser.roles.map((r) => (
-          <RowBetween key={r} className="py-1.5">
-            <Pill variant="gold">{roleLabels[r]}</Pill>
-            {currentUser.mandat && r !== "choriste" ? (
-              <Muted className="font-sans-medium tabular-nums">
-                {currentUser.mandat.debut} → {currentUser.mandat.fin}
-              </Muted>
-            ) : null}
-          </RowBetween>
-        ))}
-        <Muted className="mt-2">Une même personne peut cumuler plusieurs rôles à la fois sur un compte unique.</Muted>
       </Card>
 
       {/* Gestion de la chorale : mêmes droits que le web (admin, bureau, secrétaire). */}
@@ -86,10 +68,10 @@ export default function ProfilScreen() {
         <Card className="py-1">
           {myReceipts.map((r, i) => (
             <ListRow
-              key={r.id}
+              key={r.localId ?? r.id}
               last={i === myReceipts.length - 1}
               title={r.label}
-              subtitle={`${r.date} · ${r.type}`}
+              subtitle={`${r.date} · ${r.type}` + (r.syncStatus === "pending" ? " · en attente d'envoi" : r.syncStatus === "failed" ? " · non envoyé" : "")}
               right={
                 <Pill variant="gold" mono>
                   {fmt(r.montant)}
@@ -100,31 +82,6 @@ export default function ProfilScreen() {
           ))}
         </Card>
       )}
-
-      {/* Changement de compte : réservé au mode démonstration (jamais avec une vraie session). */}
-      {isDemo ? (
-        <>
-          <SectionHeader title="Aperçu du rôle (démo)" />
-          <Card className="pb-1">
-            <Muted className="mb-1">Se connecter avec un autre profil pour prévisualiser ses droits d'accès :</Muted>
-            {others.map((c, i) => (
-              <ListRow
-                key={c.id}
-                last={i === others.length - 1}
-                left={<Avatar id={c.id} name={c.name} size={30} />}
-                title={c.name}
-                subtitle={c.roles.map((r) => roleLabels[r]).join(" · ")}
-                right={<Chevron />}
-                onPress={() => {
-                  loginAs(c.id)
-                  router.replace("/(tabs)")
-                  toast("Connecté — " + c.name)
-                }}
-              />
-            ))}
-          </Card>
-        </>
-      ) : null}
 
       <Button
         title="Se déconnecter"

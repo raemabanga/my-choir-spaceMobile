@@ -1,22 +1,22 @@
-// Écran Accueil — design system My Choir Space : en-tête marine à cercles, carte « Reste à payer »,
+// Écran Accueil — design system Harmonix : en-tête marine à cercles, carte « Reste à payer »,
 // raccourcis, prochain événement, puis les blocs selon les droits du compte.
 // Style en classes NativeWind (tailwind.config.js).
 import { router, useFocusEffect } from "expo-router"
 import { StatusBar } from "expo-status-bar"
 import { CalendarDays, Music, Wallet, type LucideIcon } from "lucide-react-native"
-import { useCallback } from "react"
-import { Text, View } from "react-native"
+import { useCallback, useEffect, useState } from "react"
+import { Image, Text, View, type ImageSourcePropType } from "react-native"
 
 import { Screen, useResponsive } from "../../components/layout"
 import { ChantFormSheet } from "../../components/sheets/ChantSheets"
 import { QuickPaymentSheet } from "../../components/sheets/CotisationSheets"
 import { EventDetailSheet } from "../../components/sheets/EventSheets"
+import { ConnectionRing, OfflineLabel, SyncButton, useConnectionRing } from "../../components/sync"
 import {
   Button,
   Card,
   CardTitle,
   cx,
-  initials,
   Muted,
   NavyCircles,
   Numeric,
@@ -30,7 +30,47 @@ import { colors, shadows } from "../../constants/theme"
 import { errorMessage, useApp } from "../../context/AppContext"
 import { useSheet } from "../../context/SheetContext"
 import { useToast } from "../../context/ToastContext"
-import { eventBilan, fmt, formatDateLong, nextEvent as findNextEvent } from "../../lib/format"
+import * as api from "../../lib/api"
+import { eventBilan, fmt, formatDateLong, nextEvent as findNextEvent, upcomingEvents } from "../../lib/format"
+import type { Evenement } from "../../types"
+
+/** Nom affiché sous le petit libellé « Chorale », sans répéter le mot s'il ouvre déjà le nom. */
+function nomSansPrefixe(nom: string) {
+  return nom.trim().replace(/^chorale\s+/i, "") || nom
+}
+
+/** Logo de la chorale (Paramètres du portail web), sinon le glyphe Music. */
+function LogoChorale({ version, nom }: { version: string | null; nom: string }) {
+  const [source, setSource] = useState<ImageSourcePropType | null>(null)
+  const [erreur, setErreur] = useState(false)
+
+  useEffect(() => {
+    let actif = true
+    setSource(null)
+    setErreur(false)
+    if (version) void api.logoSource(version).then((s) => actif && setSource(s))
+    return () => {
+      actif = false
+    }
+  }, [version])
+
+  if (source && !erreur) {
+    return (
+      <Image
+        source={source}
+        onError={() => setErreur(true)}
+        accessibilityLabel={`Logo de ${nom}`}
+        resizeMode="contain"
+        className="h-[47px] w-[47px] rounded-full bg-paper"
+      />
+    )
+  }
+  return (
+    <View className="h-[47px] w-[47px] items-center justify-center rounded-full bg-on-navy-fill">
+      <Music size={20} color={colors.gold} strokeWidth={1.75} />
+    </View>
+  )
+}
 
 /** Colonne libellé / montant du bloc « Budget global ». `colorClassName` : couleur du montant. */
 function BudgetStat({ label, amount, colorClassName = "text-ink" }: { label: string; amount: number; colorClassName?: string }) {
@@ -82,10 +122,37 @@ function DateTile({ iso }: { iso: string }) {
   )
 }
 
+/** Carte d'un événement de l'accueil : date, titre, cotisation ou date longue, type ; S'inscrire si ouvert. */
+function CarteEvenement({ ev, onOuvrir, onInscription }: { ev: Evenement; onOuvrir: () => void; onInscription: (inscrire: boolean) => void }) {
+  return (
+    <Card onPress={onOuvrir} accessibilityLabel={`${ev.titre}, ${formatDateLong(ev.date)}`}>
+      <View className="flex-row items-center gap-3">
+        <DateTile iso={ev.date} />
+        <View className="min-w-0 flex-1">
+          <CardTitle className="mb-0.5">{ev.titre}</CardTitle>
+          <Muted className="tabular-nums">{formatDateLong(ev.date)}</Muted>
+          {ev.cotisationMontant > 0 ? <Muted className="tabular-nums">Cotisation : {fmt(ev.cotisationMontant)}</Muted> : null}
+        </View>
+        <Pill variant="gold">{ev.type}</Pill>
+      </View>
+      {ev.inscrit || ev.inscriptionsOuvertes ? (
+        <Button
+          title={ev.inscrit ? "Se désinscrire" : "S'inscrire"}
+          variant={ev.inscrit ? "outline" : "primary"}
+          small
+          className="mt-3"
+          onPress={() => onInscription(!ev.inscrit)}
+        />
+      ) : null}
+    </Card>
+  )
+}
+
 export default function HomeScreen() {
-  const { currentUser, statutaire, events, chants, can, deleteSong, annee, mensualite } = useApp()
-  const { openSheet } = useSheet()
+  const { currentUser, statutaire, events, chants, can, annee, mensualite, choraleNom, parametres, toggleInscription } = useApp()
   const { toast } = useToast()
+  const connexion = useConnectionRing()
+  const { openSheet } = useSheet()
   const { gutter, maxWidth } = useResponsive()
 
   // En-tête marine : barre d'état en clair tant que l'accueil est affiché.
@@ -109,15 +176,18 @@ export default function HomeScreen() {
       <View className="relative overflow-hidden bg-navy pb-16 pt-3">
         <NavyCircles />
         <View className="w-full flex-row items-center gap-3 self-center" style={{ maxWidth, paddingHorizontal: gutter }}>
-          <View className="h-11 w-11 items-center justify-center rounded-full bg-on-navy-fill">
-            <Text className="font-sans-semibold text-[14px] text-luna-100">{initials(currentUser.name)}</Text>
-          </View>
+          {/* Logo rond : anneau vert 5 s quand l'app est connectée, rouge tant qu'elle est hors ligne. */}
+          <ConnectionRing status={connexion}>
+            <LogoChorale version={parametres.logoVersion} nom={choraleNom} />
+          </ConnectionRing>
           <View className="min-w-0 flex-1">
-            <Text className="font-sans text-[13px] text-on-navy-muted">Bonjour,</Text>
-            <Text accessibilityRole="header" numberOfLines={1} className="font-sans-semibold text-[20px] tracking-[-0.4px] text-paper">
-              {firstName}
+            <Text className="font-sans text-[13px] text-on-navy-muted">Chorale</Text>
+            <Text accessibilityRole="header" numberOfLines={2} className="font-sans-semibold text-[20px] tracking-[-0.4px] text-paper">
+              {nomSansPrefixe(choraleNom)}
             </Text>
+            <OfflineLabel status={connexion} className="mt-1" />
           </View>
+          <SyncButton light />
         </View>
       </View>
       <View className="-mt-12 w-full self-center" style={{ maxWidth, paddingHorizontal: gutter }}>
@@ -129,6 +199,9 @@ export default function HomeScreen() {
           className="rounded-card border border-line bg-paper p-4"
           style={shadows.hero}
         >
+          <Text numberOfLines={1} className="mb-1 font-sans-semibold text-[16px] tracking-[-0.2px] text-ink">
+            Bonjour, {firstName}
+          </Text>
           <Muted>Reste à payer en {annee}</Muted>
           <Text className="mt-1 font-sans-semibold text-[30px] leading-[34px] tracking-[-0.6px] tabular-nums text-ink">
             {resteAPayer.toLocaleString("fr-FR")}
@@ -154,7 +227,15 @@ export default function HomeScreen() {
     .filter((p) => !p).length
 
   const recentChant = chants[chants.length - 1]
-  const pendingChant = chants.find((c) => c.statut === "a_valider")
+
+  // Choriste, commission musicale… (ni budget ni encaissement) : l'accueil a peu de blocs,
+  // on y montre les 4 prochains événements plutôt qu'un seul.
+  const vueChoriste = !can("budget") && !can("paiements")
+  const prochains = vueChoriste ? upcomingEvents(events, 4) : next ? [next] : []
+  const inscription = (eventId: number, inscrire: boolean) =>
+    toggleInscription(eventId, inscrire)
+      .then(() => toast(inscrire ? "Inscription enregistrée" : "Désinscription enregistrée"))
+      .catch((e) => toast(errorMessage(e)))
 
   return (
     <Screen title="Accueil" hero={hero}>
@@ -165,21 +246,27 @@ export default function HomeScreen() {
         <QuickTile icon={Music} label="Répertoire" onPress={() => router.push("/(tabs)/chants")} />
       </View>
 
-      {/* Prochain événement */}
-      {next ? (
+      {/* Prochain(s) événement(s) : 4 pour la vue choriste, 1 pour les rôles financiers. */}
+      {prochains.length > 0 ? (
         <>
-          <SectionHeader title="Prochain événement" />
-          <Card onPress={() => openSheet(<EventDetailSheet eventId={next.id} />)} accessibilityLabel={`Prochain événement : ${next.titre}`}>
-            <View className="flex-row items-center gap-3">
-              <DateTile iso={next.date} />
-              <View className="min-w-0 flex-1">
-                <CardTitle className="mb-0.5">{next.titre}</CardTitle>
-                <Muted className="tabular-nums">
-                  {next.cotisationMontant > 0 ? `Cotisation : ${fmt(next.cotisationMontant)}` : formatDateLong(next.date)}
-                </Muted>
-              </View>
-              <Pill variant="gold">{next.type}</Pill>
-            </View>
+          <SectionHeader title={prochains.length > 1 ? "Prochains événements" : "Prochain événement"} />
+          {prochains.map((ev) => (
+            <CarteEvenement
+              key={ev.id}
+              ev={ev}
+              onOuvrir={() => openSheet(<EventDetailSheet eventId={ev.id} />)}
+              onInscription={(inscrire) => inscription(ev.id, inscrire)}
+            />
+          ))}
+          {vueChoriste ? (
+            <Button title="Voir tous les événements" variant="ghost" block onPress={() => router.push("/(tabs)/evenements")} />
+          ) : null}
+        </>
+      ) : vueChoriste ? (
+        <>
+          <SectionHeader title="Prochains événements" />
+          <Card>
+            <Muted>Aucun événement à venir pour le moment.</Muted>
           </Card>
         </>
       ) : null}
@@ -226,29 +313,6 @@ export default function HomeScreen() {
       ) : null}
 
       {/* À valider */}
-      {can("chantsGerer") && pendingChant ? (
-        <>
-          <SectionHeader title="À valider" />
-          <Card>
-            <RowBetween>
-              <CardTitle className="shrink">{pendingChant.titre}</CardTitle>
-              <Pill variant="pending">Suppression proposée</Pill>
-            </RowBetween>
-            <Muted>Proposée par la commission musicale.</Muted>
-            <Button
-              title="Valider la suppression"
-              variant="danger"
-              block
-              className="mt-2.5"
-              onPress={() => {
-                deleteSong(pendingChant.id)
-                  .then(() => toast("Chant supprimé du répertoire"))
-                  .catch((e) => toast(errorMessage(e)))
-              }}
-            />
-          </Card>
-        </>
-      ) : null}
     </Screen>
   )
 }

@@ -1,4 +1,4 @@
-// Source unique des couleurs — design system My Choir Space (palette LUNA), identique au
+// Source unique des couleurs — design system Harmonix (palette LUNA), identique au
 // portail web et au back-office.
 // Lue par tailwind.config.js (classes NativeWind : bg-navy, text-ink-light, border-line…)
 // et par constants/theme.ts (props de couleur des composants tiers : icônes, dégradés, Picker).

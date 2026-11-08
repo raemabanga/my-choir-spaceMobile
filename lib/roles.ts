@@ -23,10 +23,13 @@ export function computePerms(roles: Role[]): Perms {
   const has = (r: Role) => roles.includes(r)
   return {
     comptes: has("admin_chorale") || has("bureau") || has("secretaire"),
-    comptesFull: has("admin_chorale") || has("bureau"),
+    // Admin, bureau et secrétariat : tous les droits sur les comptes (rôles, mot de passe, statut).
+    comptesFull: has("admin_chorale") || has("bureau") || has("secretaire"),
     evenements: has("bureau") || has("tresorier") || has("secretaire"),
     cotisations: has("bureau") || has("tresorier") || has("commission_recette"),
     paiements: has("tresorier") || has("commission_recette"),
+    // Annuler un paiement saisi par erreur (règle de l'API).
+    paiementsAnnuler: has("bureau") || has("tresorier") || has("commission_recette"),
     budget: has("bureau") || has("tresorier"),
     depensesValider: has("bureau") || has("tresorier"),
     chantsGerer: has("bureau"),
@@ -41,7 +44,7 @@ export function computePerms(roles: Role[]): Perms {
 /** Rôles qu'un secrétaire peut gérer : comptes ne portant que ces rôles (règle de l'API). */
 export const BASIC_ROLES: Role[] = ["choriste", "commission_recette", "commission_musicale"]
 
-/** Rôles attribuables ou révocables par l'admin et le bureau (ni Choriste, ni Admin). */
+/** Rôles attribuables ou révocables par l'admin, le bureau et le secrétariat (ni Choriste, ni Admin). */
 export const MANDATE_ROLES: Role[] = ["commission_recette", "commission_musicale", "bureau", "tresorier", "secretaire"]
 
 /** Rôle initial d'un nouveau compte (Choriste est toujours donné en plus). */

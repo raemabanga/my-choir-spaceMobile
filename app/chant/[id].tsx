@@ -1,40 +1,69 @@
 // Page « Détail du chant » (plein écran) : titre, audio, partition, paroles, puis l'auteur en bas.
 
 import { router, useLocalSearchParams } from "expo-router"
-import { FileText, Music, Pencil, Play } from "lucide-react-native"
-import { ScrollView, Text, View } from "react-native"
+import { FileText, Heart, Music } from "lucide-react-native"
+import { useMemo, useState } from "react"
+import { Pressable, ScrollView, Text, View } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { BackHeader } from "../../components/AppHeader"
+import { ChantAudio } from "../../components/ChantAudio"
 import { Container } from "../../components/layout"
-import { ChantFormSheet } from "../../components/sheets/ChantSheets"
-import { Button, Card, EmptyState, Pill, ProgressBar, RowBetween, SectionHeader } from "../../components/ui"
+import { Button, Card, EmptyState, Muted, Pill, SectionHeader } from "../../components/ui"
 import { colors } from "../../constants/theme"
 import { errorMessage, useApp } from "../../context/AppContext"
-import { useSheet } from "../../context/SheetContext"
+import { parId } from "../../context/choraleData"
 import { useToast } from "../../context/ToastContext"
+import { cleChant, numerosChants } from "../../lib/chants"
+import { ouvrirDocumentChant } from "../../lib/fichiersChant"
+import { basculerFavori, useFavoris } from "../../lib/favoris"
 
 export default function ChantScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
-  const { chants, can, isDemo, proposeDeleteSong, deleteSong } = useApp()
-  const { openSheet } = useSheet()
+  const { chants, can, deleteSong } = useApp()
   const { toast } = useToast()
-  const chant = chants.find((c) => c.id === Number(id))
+  // parId : la page d'un chant créé hors ligne reste valable après son envoi au serveur.
+  const chant = parId(chants, Number(id))
 
-  // L'API ne permet pas encore de modifier un chant, ni de proposer sa suppression :
-  // ces actions restent réservées à la démonstration.
-  const canEdit = isDemo && can("chantsCreer")
-  // Comme sur le web, seul le bureau supprime ; qui peut ajouter sans supprimer (commission musicale) propose.
-  const canPropose = isDemo && chant !== undefined && can("chantsCreer") && !can("chantsGerer") && chant.statut !== "a_valider"
-  // Démonstration : le bureau valide une suppression proposée. API : le bureau supprime directement.
-  const canDelete = chant !== undefined && can("chantsGerer") && (!isDemo || chant.statut === "a_valider")
+  // Comme sur le web, seul le bureau supprime un chant (l'API ne permet pas encore de le modifier).
+  const canDelete = chant !== undefined && can("chantsGerer")
+
+  // Numéro automatique (ordre d'ajout au répertoire) et favori (enregistré sur le téléphone).
+  const numeros = useMemo(() => numerosChants(chants), [chants])
+  const favoris = useFavoris()
+  const cle = chant ? cleChant(chant) : null
+  const favori = cle !== null && favoris.has(cle)
+  const [ouverture, setOuverture] = useState(false)
+
+  /** Ouvre la partition avec une application du téléphone (téléchargée une fois, puis hors connexion). */
+  async function ouvrirPartition() {
+    if (!chant?.document || chant.id < 0 || ouverture) return
+    setOuverture(true)
+    try {
+      await ouvrirDocumentChant(chant.id, chant.document)
+    } catch (e) {
+      toast(errorMessage(e))
+    } finally {
+      setOuverture(false)
+    }
+  }
 
   return (
     <SafeAreaView className="flex-1 bg-paper" edges={["top"]}>
       <BackHeader
         title="Chant"
         right={
-          chant && canEdit ? (
-            <Button title="Modifier" icon={Pencil} variant="outline" small onPress={() => openSheet(<ChantFormSheet chant={chant} />)} />
+          cle ? (
+            <Pressable
+              onPress={() => toast(basculerFavori(cle) ? "Ajouté aux favoris" : "Retiré des favoris")}
+              accessibilityRole="button"
+              accessibilityLabel={favori ? "Retirer des favoris" : "Ajouter aux favoris"}
+              accessibilityState={{ selected: favori }}
+              hitSlop={6}
+              className="min-h-touch min-w-touch items-center justify-center rounded-full active:opacity-60"
+            >
+              {/* Icône lucide : couleurs en props ; cœur plein quand le chant est favori. */}
+              <Heart size={24} color={favori ? colors.danger : colors.n400} fill={favori ? colors.danger : "transparent"} strokeWidth={2} />
+            </Pressable>
           ) : null
         }
       />
@@ -48,42 +77,31 @@ export default function ChantScreen() {
               <Text accessibilityRole="header" className="font-sans-semibold text-[26px] leading-[32px] tracking-[-0.3px] text-navy">
                 {chant.titre}
               </Text>
+              <Text className="mt-1 font-sans-medium text-[14px] tabular-nums text-ink-light">N° {numeros.get(cleChant(chant)) ?? "—"}</Text>
               <View className="mb-4 mt-3 flex-row flex-wrap gap-1.5">
                 <Pill>{chant.categorie}</Pill>
                 {chant.tonalite ? <Pill variant="gold">{chant.tonalite}</Pill> : null}
-                {chant.statut === "a_valider" ? <Pill variant="pending">Suppression proposée</Pill> : null}
               </View>
 
-              <Card>
-                <RowBetween>
-                  <View className="flex-row items-center gap-2">
-                    <View className="h-9 w-9 items-center justify-center rounded-full bg-navy">
-                      <Play size={16} color={colors.goldSoft} fill={colors.goldSoft} />
-                    </View>
-                    <Text className="font-sans-bold text-[14px] text-ink">Écouter l'audio</Text>
-                  </View>
-                  <Text className="font-sans text-[12.5px] tabular-nums text-ink-light">02:41</Text>
-                </RowBetween>
-                <ProgressBar percent={30} />
-              </Card>
-
-              <Button title="Voir la partition (PDF)" icon={FileText} variant="ghost" block onPress={() => toast("Fonctionnalité à venir")} />
-
-              {canPropose ? (
+              {/* Audio et partition : ajoutés depuis le portail web (chant déjà envoyé au serveur). */}
+              {chant.audio && chant.id >= 0 ? <ChantAudio chantId={chant.id} meta={chant.audio} /> : null}
+              {chant.document && chant.id >= 0 ? (
                 <Button
-                  title="Proposer la suppression"
-                  variant="danger"
+                  title={ouverture ? "Ouverture…" : "Voir la partition"}
+                  icon={FileText}
+                  variant="ghost"
                   block
-                  className="mt-2"
-                  onPress={() => {
-                    proposeDeleteSong(chant.id)
-                    toast("Suppression proposée au bureau exécutif")
-                  }}
+                  disabled={ouverture}
+                  onPress={ouvrirPartition}
                 />
               ) : null}
+              {!chant.audio && !chant.document ? (
+                <Muted className="mb-2">Pas encore d'audio ni de partition : ils s'ajoutent depuis le portail web.</Muted>
+              ) : null}
+
               {canDelete ? (
                 <Button
-                  title={isDemo ? "Valider la suppression" : "Supprimer le chant"}
+                  title="Supprimer le chant"
                   variant="danger"
                   block
                   className="mt-2"

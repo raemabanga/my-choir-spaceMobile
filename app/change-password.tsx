@@ -10,6 +10,7 @@ import { Button, Field } from "../components/ui"
 import { colors, shadows } from "../constants/theme"
 import { useApp } from "../context/AppContext"
 import { useToast } from "../context/ToastContext"
+import { syncManager } from "../lib/offline"
 
 const MIN_LENGTH = 8
 
@@ -32,7 +33,7 @@ export default function ChangePasswordScreen() {
     try {
       await changePassword(current, next)
       toast("Mot de passe enregistré")
-      router.replace("/(tabs)")
+      router.replace(syncManager.isInitialSyncDone() ? "/(tabs)" : "/initial-sync")
     } catch (e) {
       setError(e instanceof Error ? e.message : "Le mot de passe n'a pas pu être changé.")
       setSaving(false)

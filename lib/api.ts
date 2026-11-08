@@ -122,6 +122,8 @@ interface ApiCompte {
   id: number
   status: "ACTIVE" | "SUSPENDED" | "LEFT"
   user: ApiPerson & { email: string | null; phone: string | null }
+  /** Mot de passe temporaire tant que le membre n'a pas choisi le sien (null sinon, ou sans droit sur ce compte). */
+  temporaryPassword?: string | null
   roles: string[]
   history: { roleCode: string; assignedAt: string; revokedAt: string | null; assignedBy: ApiPerson | null }[]
 }
@@ -138,6 +140,8 @@ export interface Compte {
   email: string
   roles: Role[]
   statut: "actif" | "désactivé"
+  /** Mot de passe temporaire, affiché tant que le membre n'a pas choisi le sien (null sinon). */
+  motDePasseTemporaire: string | null
   historique: { role: Role; debut: string; fin: string | null; auteur: string }[]
 }
 
@@ -167,6 +171,7 @@ function toCompte(c: ApiCompte): Compte {
     email: c.user.email ?? "",
     roles: toRoles(c.roles),
     statut: c.status === "ACTIVE" ? "actif" : "désactivé",
+    motDePasseTemporaire: c.temporaryPassword ?? null,
     historique: c.history
       .filter((h) => fromApiRole(h.roleCode))
       .map((h) => ({
@@ -325,7 +330,7 @@ interface ApiStatutaire {
   exercices: { annee: number; cartes: { membreId: number; nom: string; mois: ApiStatutMois[] }[] }[]
 }
 
-interface ApiEvenement {
+export interface ApiEvenement {
   id: number
   titre: string
   date: string | null
@@ -335,6 +340,10 @@ interface ApiEvenement {
   collecte: number
   attendu: number
   versements: { membreId: number; nom: string; montant: number }[]
+  /** Les choristes peuvent s'inscrire (absent sur un serveur plus ancien). */
+  inscriptionsOuvertes?: boolean
+  inscrits?: { membreId: number; nom: string }[]
+  inscrit?: boolean
 }
 
 export interface ApiDepense {
@@ -345,9 +354,11 @@ export interface ApiDepense {
   montant: number
   evenementId: number | null
   statut: "EN_ATTENTE" | "VALIDEE" | "REJETEE"
+  /** Qui l'a saisie (identifiant utilisateur) : l'API refuse qu'on valide sa propre dépense. */
+  saisiPar?: { id: number; nom: string }
 }
 
-interface ApiPaiement {
+export interface ApiPaiement {
   id: number
   /** Date de saisie. */
   date: string
@@ -356,6 +367,10 @@ interface ApiPaiement {
   /** Code du mode de règlement (null pour les paiements plus anciens). */
   mode: string | null
   membre: { id: number; nom: string }
+  type: "STATUTAIRE" | "EVENEMENTIELLE"
+  /** STATUTAIRE : mois payé (0 = janvier) et son exercice. */
+  mois: number | null
+  annee: number | null
   libelle: string
   montant: number
   evenementId: number | null
@@ -364,13 +379,16 @@ interface ApiPaiement {
   annulation: { date: string; par: string; motif: string } | null
 }
 
-interface ApiChant {
+export interface ApiChant {
   id: number
   titre: string
   compositeur: string
   tonalite: string
   categorie: string
   paroles: string
+  /** Partition et audio (absents sur un serveur plus ancien). */
+  document?: { nom: string; type: string; taille: number } | null
+  audio?: { nom: string; type: string; taille: number } | null
 }
 
 export interface Membre {
@@ -411,9 +429,9 @@ export async function fetchStatutaire() {
   }
 }
 
-/** Événements de la chorale ; les dépenses sont rattachées ensuite (fetchDepenses). */
-export async function fetchEvenements(): Promise<Evenement[]> {
-  return (await request<ApiEvenement[]>("/espace/evenements")).map((e) => ({
+/** Événement de l'API dans la forme de l'app (les dépenses sont rattachées ensuite). */
+export function toEvenement(e: ApiEvenement): Evenement {
+  return {
     id: e.id,
     titre: e.titre,
     type: capitalize(e.type),
@@ -421,15 +439,67 @@ export async function fetchEvenements(): Promise<Evenement[]> {
     description: "",
     budgetPrevisionnel: e.budgetPrevisionnel,
     cotisationMontant: e.montantCotisation,
-    inscrits: [],
     depenses: [],
     contributions: Object.fromEntries(e.versements.map((v) => [v.membreId, v.montant])),
-  }))
+    inscriptionsOuvertes: e.inscriptionsOuvertes ?? false,
+    inscrits: (e.inscrits ?? []).map((i) => ({ id: i.membreId, nom: i.nom })),
+    inscrit: e.inscrit ?? false,
+  }
+}
+
+/** Événements de la chorale ; les dépenses sont rattachées ensuite (fetchDepenses). */
+export async function fetchEvenements(): Promise<Evenement[]> {
+  return (await request<ApiEvenement[]>("/espace/evenements")).map(toEvenement)
+}
+
+/** Champs modifiables d'un événement (tous facultatifs). `date: null` retire la date. */
+export interface ModificationEvenement {
+  titre?: string
+  type?: string
+  date?: string | null
+  budgetPrevisionnel?: number
+  montantCotisation?: number
+  inscriptionsOuvertes?: boolean
+}
+
+export function modifierEvenement(id: number, form: ModificationEvenement) {
+  return request<ApiEvenement>(`/espace/evenements/${id}`, { method: "PATCH", body: JSON.stringify(form) })
+}
+
+/** Inscription du membre connecté à un événement ouvert aux inscriptions. */
+export function inscrireEvenement(id: number) {
+  return request<ApiEvenement>(`/espace/evenements/${id}/inscription`, { method: "POST" })
+}
+
+/** Désinscription du membre connecté. */
+export function desinscrireEvenement(id: number) {
+  return request<ApiEvenement>(`/espace/evenements/${id}/inscription`, { method: "DELETE" })
+}
+
+/** Inscriptions de chaque événement (tirées de la liste des événements). */
+export async function fetchInscriptions() {
+  const evenements = await request<ApiEvenement[]>("/espace/evenements")
+  return evenements.flatMap((e) => (e.inscrits ?? []).map((i) => ({ evenementId: e.id, membreId: i.membreId, nom: i.nom })))
+}
+
+/** Refusé (409) si des paiements ou des dépenses sont rattachés à l'événement. */
+export function supprimerEvenement(id: number) {
+  return request<void>(`/espace/evenements/${id}`, { method: "DELETE" })
 }
 
 /** Dépenses (bureau, trésorerie, secrétariat, admin). */
 export function fetchDepenses() {
   return request<ApiDepense[]>("/espace/depenses")
+}
+
+/** Paiements tels que renvoyés par l'API (annulés compris) : tous pour les rôles financiers, les siens sinon. */
+export function fetchPaiements() {
+  return request<ApiPaiement[]>("/espace/paiements")
+}
+
+/** Annule un paiement saisi par erreur : son mois redevient impayé. Motif obligatoire. */
+export function annulerPaiement(id: number, motif: string) {
+  return request<ApiPaiement>(`/espace/paiements/${id}/annuler`, { method: "POST", body: JSON.stringify({ motif }) })
 }
 
 /** Paiements non annulés, sous forme de reçus : tous pour les rôles financiers, les siens sinon. */
@@ -459,7 +529,7 @@ export interface DetailsPaiement {
 }
 
 export async function fetchChants(): Promise<Chant[]> {
-  return (await request<ApiChant[]>("/espace/chants")).map((c) => ({ ...c, statut: "actif" }))
+  return request<ApiChant[]>("/espace/chants")
 }
 
 /** Cotisation statutaire d'un mois (0 = janvier). Refusée si le mois est déjà payé. */
@@ -477,7 +547,15 @@ export function payerEvenement(membreId: number, evenementId: number, montant: n
   })
 }
 
-export function creerEvenement(form: { titre: string; type: string; date: string; budgetPrevisionnel: number; montantCotisation: number }) {
+export function creerEvenement(form: {
+  titre: string
+  type: string
+  date: string
+  budgetPrevisionnel: number
+  montantCotisation: number
+  /** Les choristes peuvent s'inscrire. */
+  inscriptionsOuvertes?: boolean
+}) {
   return request<ApiEvenement>("/espace/evenements", {
     method: "POST",
     body: JSON.stringify({ ...form, date: form.date || null }),
@@ -494,8 +572,10 @@ export function creerDepense(form: {
   categorie: string
   beneficiaire: string
   mode: ModeReglement
+  /** "AAAA-MM-JJ" : jour de la dépense (aujourd'hui si absent). Saisie hors ligne : le jour de la saisie. */
+  date?: string
 }) {
-  return request<ApiDepense>("/espace/depenses", { method: "POST", body: JSON.stringify({ ...form, date: todayISO() }) })
+  return request<ApiDepense>("/espace/depenses", { method: "POST", body: JSON.stringify({ ...form, date: form.date || todayISO() }) })
 }
 
 /** Refusé par l'API pour une dépense que l'on a saisie soi-même. */
@@ -503,7 +583,7 @@ export function validerDepense(id: number) {
   return request<ApiDepense>(`/espace/depenses/${id}/valider`, { method: "POST" })
 }
 
-export function creerChant(form: Omit<ApiChant, "id">) {
+export function creerChant(form: Omit<ApiChant, "id" | "document" | "audio">) {
   return request<ApiChant>("/espace/chants", { method: "POST", body: JSON.stringify(form) })
 }
 
@@ -525,8 +605,55 @@ export interface Parametres {
   /** Tonalités proposées à l'ajout d'un chant (« Sol majeur »…). */
   tonalitesChant: string[]
   modesReglement: { code: ModeReglement; label: string }[]
+  /** Change à chaque nouveau logo (pour le recharger) ; null sans logo. */
+  logoVersion: string | null
 }
 
 export function fetchParametres() {
   return request<Parametres>("/espace/parametres")
+}
+
+/**
+ * Source <Image> du logo de la chorale. La route demande le jeton : il passe en en-tête
+ * (pris en charge par <Image> sur iOS et Android). La version évite l'image en cache périmée.
+ */
+/** Le téléphone du membre connecté recevra les notifications push. */
+export function enregistrerPushToken(token: string, plateforme: "ios" | "android") {
+  return request<void>("/espace/notifications/push-tokens", { method: "POST", body: JSON.stringify({ token, plateforme }) })
+}
+
+/** Jeton de connexion enregistré (lu avant une déconnexion). */
+export const jetonEnregistre = () => tokenStore.get()
+
+/**
+ * Déconnexion : ce téléphone ne reçoit plus les notifications du membre. Appel isolé avec le
+ * jeton de la session fermée : un refus (jeton expiré) ne touche jamais la session suivante.
+ */
+export async function supprimerPushToken(token: string, jetonSession: string) {
+  try {
+    await fetch(API_URL + "/espace/notifications/push-tokens/supprimer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + jetonSession },
+      body: JSON.stringify({ token }),
+    })
+  } catch {
+    // Sans réseau : le jeton passera au prochain membre connecté sur ce téléphone.
+  }
+}
+
+/** Adresse et en-tête d'authentification du document ou de l'audio d'un chant (téléchargement). */
+export async function fichierChantSource(chantId: number, genre: "document" | "audio") {
+  const token = await tokenStore.get()
+  return {
+    uri: `${API_URL}/espace/chants/${chantId}/fichiers/${genre}`,
+    headers: token ? { Authorization: "Bearer " + token } : undefined,
+  }
+}
+
+export async function logoSource(version: string) {
+  const token = await tokenStore.get()
+  return {
+    uri: `${API_URL}/espace/parametres/logo?v=${encodeURIComponent(version)}`,
+    headers: token ? { Authorization: "Bearer " + token } : undefined,
+  }
 }

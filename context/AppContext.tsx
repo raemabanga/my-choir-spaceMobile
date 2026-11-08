@@ -1,26 +1,37 @@
+// État global de l'app : session, droits, et données de la chorale.
+//
+// Mode hors ligne : les données ne viennent jamais directement de l'API. Elles sont lues dans
+// SQLite (context/choraleData.ts) et chaque action écrit d'abord sur le téléphone (repositories
+// de lib/offline/entities.ts) ; le syncManager envoie au serveur dès que le réseau le permet.
+
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { AppState } from "react-native"
-import {
-  MENSUALITE,
-  MONTHS,
-  chorists as mockChorists,
-  initialChants,
-  initialEvents,
-  initialRecus,
-  initialStatutaire,
-  roleHistory as mockRoleHistory,
-  roleLabels,
-} from "../data/mockData"
 import * as api from "../lib/api"
-import { currentYear } from "../lib/format"
-import { computePerms, type Perms } from "../lib/roles"
+import { currentYear, MONTHS } from "../lib/format"
+import { cacheSession, clearCachedSession, dataChanged, readCachedSession, syncManager, useSyncStatusStore } from "../lib/offline"
+import {
+  chantRepository,
+  depenseRepository,
+  evenementRepository,
+  inscriptionRepository,
+  paiementRepository,
+  type EvenementData,
+} from "../lib/offline/entities"
+import { desinscrirePush, inscrirePush } from "../lib/push"
+import { computePerms, ROLE_LABEL, type Perms } from "../lib/roles"
 import { Chant, Chorist, Evenement, Permission, Recu, RoleHistoryEntry } from "../types"
+import { EMPTY_DATA, evenementARattachements, lireDonneesChorale, parId } from "./choraleData"
 
-/** Nom de la chorale des comptes de démonstration (hors connexion). */
-const DEMO_CHORALE_NOM = "Chorale Sainte-Cécile de Yaoundé"
+/** "AAAA-MM-JJ" du jour en heure locale (toISOString donnerait la veille entre minuit et 1 h en UTC+1). */
+function aujourdhuiLocal() {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
 
-/** Listes proposées en démonstration et avant le chargement (mêmes défauts que le backend). */
+/** Listes proposées avant le chargement des Paramètres de la chorale (mêmes défauts que le backend). */
 const PARAMETRES_PAR_DEFAUT: Omit<api.Parametres, "mensualite"> = {
+  logoVersion: null,
   typesEvenement: ["concert", "sortie", "veillée", "mariage", "décès", "maladie"],
   categoriesDepense: ["Location", "Transport", "Sonorisation", "Restauration", "Partitions", "Tenues", "Instruments", "Communication", "Divers"],
   categoriesChant: ["Louange", "Adoration", "Fête", "Deuil"],
@@ -36,23 +47,16 @@ const PARAMETRES_PAR_DEFAUT: Omit<api.Parametres, "mensualite"> = {
   ],
 }
 
-/** Message affiché quand le chargement des données de la chorale échoue. */
-const SYNC_ERROR = "Impossible de charger les données de la chorale. Tirez vers le bas pour réessayer."
-
-/** "AAAA-MM-JJ" → "JJ/MM/AAAA" (sans passer par Date : pas de décalage de fuseau). */
-const frDateISO = (iso: string) => iso.split("-").reverse().join("/")
-
-function fabricateReceiptId() {
-  return "REC-" + currentYear() + "-" + (1000 + Math.floor(Math.random() * 9000))
-}
-
-interface NewEventInput {
+/** Champs d'un événement saisis dans le formulaire (création et modification). */
+export interface EventInput {
   titre: string
   type: string
+  /** "AAAA-MM-JJ", ou "" si la date n'est pas fixée. */
   date: string
-  description: string
   budgetPrevisionnel: number
   cotisationMontant: number
+  /** Les choristes peuvent s'inscrire. */
+  inscriptionsOuvertes: boolean
 }
 
 interface ChantInput {
@@ -63,7 +67,7 @@ interface ChantInput {
   paroles: string
 }
 
-/** Champs d'une dépense exigés par l'API (ignorés en démonstration). */
+/** Champs d'une dépense exigés par l'API. */
 export interface DepenseDetails {
   categorie: string
   beneficiaire: string
@@ -76,12 +80,10 @@ interface AppContextValue {
   chorists: Chorist[]
   roleLabels: Record<string, string>
   roleHistory: Record<number, RoleHistoryEntry[]>
-  /** Session de l'API (null : non connecté, ou compte de démonstration). */
+  /** Session de l'API (null : non connecté). */
   session: api.Session | null
   /** Faux tant que la session enregistrée n'a pas été relue au démarrage. */
   authReady: boolean
-  /** Vrai pour un compte de démonstration (aucune donnée réelle). */
-  isDemo: boolean
   choraleNom: string
   /** Année en cours (exercice des cotisations statutaires) ; change d'elle-même au 1er janvier. */
   annee: number
@@ -92,13 +94,13 @@ interface AppContextValue {
    * catégories de dépense et de chant, modes de règlement.
    */
   parametres: Omit<api.Parametres, "mensualite">
-  /** Vrai pendant un rechargement des données depuis l'API. */
+  /** Vrai pendant une synchronisation avec le serveur. */
   syncing: boolean
-  /** Dernière erreur de chargement des données (null si tout va bien). */
+  /** Dernière erreur de synchronisation (null si tout va bien ou hors ligne). */
   syncError: string | null
-  /** Recharge les données de la chorale depuis l'API (sans effet en démonstration). */
+  /** Envoie les modifications en attente et retélécharge les données (sans effet hors ligne). */
   refresh: () => Promise<void>
-  /** Connexion réelle (email ou téléphone + mot de passe). Lève une ApiError en cas de refus. */
+  /** Connexion (email ou téléphone + mot de passe). Lève une ApiError en cas de refus. */
   signIn: (identifier: string, password: string) => Promise<api.Session>
   /** Première connexion : remplace le mot de passe temporaire. */
   changePassword: (current: string, next: string) => Promise<void>
@@ -114,25 +116,30 @@ interface AppContextValue {
   /** Droits du membre courant (mêmes règles que le web). */
   perms: Perms
   can: (perm: Permission) => boolean
-  loginAs: (id: number) => void
   logout: () => void
-  // Actions : appellent l'API avec une vraie session (lèvent une ApiError en cas de refus),
-  // modifient les données locales en démonstration.
+  // Actions : enregistrées sur le téléphone tout de suite (réseau ou pas), envoyées ensuite.
+  // Elles lèvent une Error avec un message prêt à afficher quand la saisie est refusée.
   /**
    * `year` : exercice du mois réglé (année en cours, ou une année passée pour un arriéré).
    * `details` : jour où le membre a payé et mode de règlement (enregistrés et imprimés sur le reçu).
    */
   confirmPaymentStatutaire: (chorishId: number, monthIndex: number, amount: number, year: number, details: api.DetailsPaiement) => Promise<void>
   confirmEventPayment: (eventId: number, chorishId: number, amount: number, details: api.DetailsPaiement) => Promise<void>
-  createEvent: (input: NewEventInput) => Promise<void>
-  /** Démonstration uniquement : l'API ne gère pas encore les inscriptions. */
-  toggleInscription: (eventId: number) => void
+  /** Annule un paiement (motif obligatoire) : son mois ou sa contribution ne compte plus. */
+  cancelPayment: (receiptLocalId: string, motif: string) => Promise<void>
+  createEvent: (input: EventInput) => Promise<void>
+  updateEvent: (eventId: number, input: EventInput) => Promise<void>
+  /** Refusé si des paiements ou des dépenses sont rattachés à l'événement (règle du serveur). */
+  deleteEvent: (eventId: number) => Promise<void>
+  /**
+   * Inscrit (`inscrire` vrai) ou désinscrit le membre connecté. L'intention vient de l'écran :
+   * un double appui ne défait pas l'action.
+   */
+  toggleInscription: (eventId: number, inscrire: boolean) => Promise<void>
   addDepense: (eventId: number, label: string, montant: number, details: DepenseDetails) => Promise<void>
   validateDepense: (eventId: number, idx: number) => Promise<void>
-  /** Avec l'API, seul l'ajout est possible (pas de modification d'un chant). */
-  saveChant: (id: number | null, data: ChantInput) => Promise<void>
-  /** Démonstration uniquement : avec l'API, le bureau supprime directement (deleteSong). */
-  proposeDeleteSong: (id: number) => void
+  /** Ajoute un chant au répertoire (l'API ne permet pas encore d'en modifier un). */
+  createChant: (data: ChantInput) => Promise<void>
   /** Supprime le chant du répertoire. */
   deleteSong: (id: number) => Promise<void>
   receiptsFor: (chorishId: number) => Recu[]
@@ -140,36 +147,68 @@ interface AppContextValue {
 
 const AppContext = createContext<AppContextValue | null>(null)
 
-const emptyCard = () => Array<boolean>(12).fill(false)
+/** Libellés des rôles : mêmes que le web. */
+const roleLabels: Record<string, string> = ROLE_LABEL
+
+/** Erreur de saisie : message affiché tel quel. */
+const refus = (message: string) => new Error(message)
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [userId, setUserId] = useState<number | null>(null)
-  const [events, setEvents] = useState<Evenement[]>(initialEvents)
-  const [chants, setChants] = useState<Chant[]>(initialChants)
-  const [recus, setRecus] = useState<Recu[]>(initialRecus)
-  const [statutaireParAnnee, setStatutaireParAnnee] = useState<Record<number, Record<number, boolean[]>>>(() => ({
-    [currentYear()]: initialStatutaire,
-  }))
-  const [apiMembres, setApiMembres] = useState<Chorist[]>([])
-  const [mensualite, setMensualite] = useState(MENSUALITE)
-  const [parametres, setParametres] = useState(PARAMETRES_PAR_DEFAUT)
   const [annee, setAnnee] = useState(currentYear)
-
-  const statutaire = useMemo(() => statutaireParAnnee[annee] ?? {}, [statutaireParAnnee, annee])
-  const anneesStatutaire = useMemo(
-    () => [...new Set([...Object.keys(statutaireParAnnee).map(Number), annee])].sort((a, b) => a - b),
-    [statutaireParAnnee, annee]
-  )
   const [session, setSession] = useState<api.Session | null>(null)
-  const [apiRoleHistory, setApiRoleHistory] = useState<RoleHistoryEntry[]>([])
   const [authReady, setAuthReady] = useState(false)
-  const [syncing, setSyncing] = useState(false)
-  const [syncError, setSyncError] = useState<string | null>(null)
 
   // Session courante et « génération » : une réponse arrivée après une déconnexion
   // (ou un changement de compte) est ignorée.
   const sessionRef = useRef<api.Session | null>(null)
   const generation = useRef(0)
+  /** Fin du changement de propriétaire des données hors ligne (effacement éventuel du précédent). */
+  const ownerReady = useRef<Promise<void>>(Promise.resolve())
+
+  /* ------------------------------ Données (SQLite) ------------------------------ */
+
+  const offlineReady = useSyncStatusStore((s) => s.ready)
+  const syncState = useSyncStatusStore((s) => s.syncState)
+  const lastError = useSyncStatusStore((s) => s.lastError)
+  const isOnline = useSyncStatusStore((s) => s.isOnline)
+
+  // Chaque écriture locale ou téléchargement relit les données (regroupé : une relecture par instant).
+  const [version, setVersion] = useState(0)
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const unsubscribe = dataChanged.subscribe(() => {
+      if (timer) return
+      timer = setTimeout(() => {
+        timer = null
+        setVersion((v) => v + 1)
+      }, 16)
+    })
+    return () => {
+      unsubscribe()
+      if (timer) clearTimeout(timer)
+    }
+  }, [])
+
+  const membershipId = session?.membershipId ?? null
+  const data = useMemo(() => {
+    if (!offlineReady || membershipId === null) return EMPTY_DATA
+    try {
+      return lireDonneesChorale(membershipId, annee)
+    } catch (e) {
+      console.warn("[offline] lecture des données", e)
+      return EMPTY_DATA
+    }
+    // `version` : relecture après chaque changement des données locales.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offlineReady, membershipId, annee, version])
+
+  const statutaireParAnnee = data.statutaireParAnnee
+  const statutaire = useMemo(() => statutaireParAnnee[annee] ?? {}, [statutaireParAnnee, annee])
+  const anneesStatutaire = useMemo(
+    () => [...new Set([...Object.keys(statutaireParAnnee).map(Number), annee])].sort((a, b) => a - b),
+    [statutaireParAnnee, annee]
+  )
 
   /* ------------------------------ Membres ------------------------------ */
 
@@ -177,135 +216,58 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     () => (session ? { id: session.membershipId, name: session.nom, roles: session.roles, numero: String(session.membershipId) } : null),
     [session]
   )
-  const chorists = useMemo(
-    () => (sessionChorist ? [sessionChorist, ...apiMembres.filter((m) => m.id !== sessionChorist.id)] : mockChorists),
-    [sessionChorist, apiMembres]
-  )
+  const chorists = useMemo(() => (sessionChorist ? [sessionChorist, ...data.membres] : []), [sessionChorist, data.membres])
   const roleHistory = useMemo(
-    () => (sessionChorist ? { [sessionChorist.id]: apiRoleHistory } : mockRoleHistory),
-    [sessionChorist, apiRoleHistory]
+    () => (sessionChorist ? { [sessionChorist.id]: data.historiqueRoles } : {}),
+    [sessionChorist, data.historiqueRoles]
   )
 
   const currentUser = useMemo(() => chorists.find((c) => c.id === userId) ?? null, [chorists, userId])
 
-  /* ------------------------------ Chargement depuis l'API ------------------------------ */
+  /* ------------------------------ Synchronisation ------------------------------ */
 
-  /** Données de démonstration (comptes fictifs, sans serveur). */
-  const resetToDemo = useCallback(() => {
-    setEvents(initialEvents)
-    setChants(initialChants)
-    setRecus(initialRecus)
-    setStatutaireParAnnee({ [currentYear()]: initialStatutaire })
-    setApiMembres([])
-    setMensualite(MENSUALITE)
-    setParametres(PARAMETRES_PAR_DEFAUT)
-    setSyncError(null)
-  }, [])
-
-  /** Vide les données avant un chargement : jamais de données fictives avec une vraie session. */
-  const clearData = useCallback(() => {
-    setEvents([])
-    setChants([])
-    setRecus([])
-    setStatutaireParAnnee({})
-    setApiMembres([])
-    setSyncError(null)
-  }, [])
-
+  /** Envoie les modifications en attente et retélécharge tout (hors ligne : rien, sans erreur). */
   const refresh = useCallback(async () => {
     const current = sessionRef.current
     if (!current || current.doitChangerMotDePasse) return
-    const gen = generation.current
-    // Année relue à chaque chargement : au 1er janvier, la carte de la nouvelle année (vierge) s'affiche.
-    const year = currentYear()
-    setAnnee(year)
-    setSyncing(true)
-
-    // Chaque appel est indépendant : un refus (403 pour un rôle sans accès) n'empêche pas les autres.
-    const [membres, statut, recusApi, evenements, depenses, chantsApi, params] = await Promise.allSettled([
-      api.fetchMembres(),
-      api.fetchStatutaire(),
-      api.fetchRecus(),
-      api.fetchEvenements(),
-      api.fetchDepenses(),
-      api.fetchChants(),
-      api.fetchParametres(),
-    ])
-    if (gen !== generation.current) return
-
-    const value = <T,>(r: PromiseSettledResult<T>) => (r.status === "fulfilled" ? r.value : null)
-    /** Erreur réseau ou serveur (un refus de droits 403 est normal selon le rôle). */
-    const failed = (r: PromiseSettledResult<unknown>) =>
-      r.status === "rejected" && !(r.reason instanceof api.ApiError && r.reason.status === 403)
-
-    // Membres : liste complète pour les rôles financiers, sinon ceux des cartes visibles (soi-même).
-    const cartes = value(statut)?.exercices.find((e) => e.annee === year)?.cartes ?? []
-    const noms = new Map<number, string>()
-    for (const m of value(membres) ?? []) noms.set(m.id, m.nom)
-    for (const c of cartes) if (!noms.has(c.membreId)) noms.set(c.membreId, c.nom)
-    setApiMembres([...noms].map(([id, nom]) => ({ id, name: nom, roles: ["choriste"], numero: String(id) })))
-
-    if (statut.status === "fulfilled") {
-      setMensualite(statut.value.mensualite)
-      const parAnnee: Record<number, Record<number, boolean[]>> = {}
-      for (const e of statut.value.exercices) {
-        parAnnee[e.annee] = Object.fromEntries(e.cartes.map((c) => [c.membreId, c.payes]))
-      }
-      parAnnee[year] ??= {}
-      parAnnee[year][current.membershipId] ??= emptyCard()
-      setStatutaireParAnnee(parAnnee)
-    }
-    if (params.status === "fulfilled") {
-      const { mensualite: montant, ...listes } = params.value
-      setMensualite(montant)
-      setParametres(listes)
-    }
-    if (recusApi.status === "fulfilled") setRecus(recusApi.value)
-    if (chantsApi.status === "fulfilled") setChants(chantsApi.value)
-    if (evenements.status === "fulfilled") {
-      const parEvenement = new Map<number, Evenement["depenses"]>()
-      for (const d of value(depenses) ?? []) {
-        if (d.evenementId == null || d.statut === "REJETEE") continue
-        const liste = parEvenement.get(d.evenementId) ?? []
-        liste.push({ id: d.id, label: d.libelle, montant: d.montant, valide: d.statut === "VALIDEE" })
-        parEvenement.set(d.evenementId, liste)
-      }
-      setEvents(evenements.value.map((ev) => ({ ...ev, depenses: parEvenement.get(ev.id) ?? [] })))
-    }
-
-    setSyncError([membres, statut, recusApi, evenements, depenses, chantsApi, params].some(failed) ? SYNC_ERROR : null)
-    setSyncing(false)
+    // Année relue à chaque synchronisation : au 1er janvier, la carte de la nouvelle année (vierge) s'affiche.
+    setAnnee(currentYear())
+    await syncManager.forceSync()
   }, [])
 
-  /** Ouvre la session : identifiant = adhésion (comme le web), puis chargement des données. */
+  /** Ouvre la session : identifiant = adhésion (comme le web), puis synchronisation en arrière-plan. */
   const openSession = useCallback(
     (next: api.Session) => {
-      const changed = sessionRef.current?.membershipId !== next.membershipId
       generation.current++
       sessionRef.current = next
-      if (changed) clearData()
       setSession(next)
       setUserId(next.membershipId)
-      if (!next.doitChangerMotDePasse) {
-        api
-          .fetchRoleHistory()
-          .then(setApiRoleHistory)
-          .catch(() => setApiRoleHistory([]))
-        void refresh()
-      }
+      // Mode hors ligne : un autre membre sur ce téléphone efface les données locales du précédent,
+      // puis la session est gardée pour rouvrir l'app sans réseau.
+      const gen = generation.current
+      ownerReady.current = syncManager
+        .setOwner(String(next.membershipId))
+        .then(() => {
+          cacheSession(next)
+          // Données déjà sur le téléphone : on les met à jour (la première fois, c'est l'écran initial-sync).
+          if (gen === generation.current && !next.doitChangerMotDePasse && syncManager.isInitialSyncDone()) void refresh()
+          // Notifications push sur ce téléphone (sans effet si indisponibles ou refusées).
+          if (gen === generation.current && !next.doitChangerMotDePasse) void inscrirePush()
+        })
+        .catch((e) => console.warn("[offline] changement d'utilisateur", e))
     },
-    [clearData, refresh]
+    [refresh]
   )
 
   const closeSession = useCallback(() => {
+    // Plus de session : rien ne doit partir vers le serveur (les opérations restent en file).
+    syncManager.suspend()
     generation.current++
     sessionRef.current = null
+    clearCachedSession()
     setSession(null)
-    setApiRoleHistory([])
     setUserId(null)
-    setSyncing(false)
-    resetToDemo()
-  }, [resetToDemo])
+  }, [])
 
   // Au démarrage : relit la session à partir du jeton enregistré.
   // Jeton refusé (expiré, compte désactivé) : retour à l'écran de connexion.
@@ -318,8 +280,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           const restored = await api.fetchSession()
           if (!cancelled) openSession(restored)
         }
-      } catch {
-        await api.clearToken()
+      } catch (e) {
+        // Serveur injoignable (pas de réseau, serveur arrêté) : on rouvre la dernière session connue
+        // pour travailler hors ligne. Jeton refusé (401) : déjà effacé par l'API, retour à la connexion.
+        const unreachable = e instanceof api.ApiError && (e.status === 0 || e.status >= 500)
+        const cached = unreachable ? readCachedSession<api.Session>() : null
+        if (cached) {
+          if (!cancelled) openSession(cached)
+        } else {
+          await api.clearToken()
+        }
       } finally {
         if (!cancelled) setAuthReady(true)
       }
@@ -330,12 +300,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [openSession, closeSession])
 
-  // Retour au premier plan : rechargement, pour voir les changements faits depuis le web.
+  // Retour au premier plan : synchronisation, pour voir les changements faits depuis le web.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active") {
         setAnnee(currentYear())
-        void refresh()
+        if (syncManager.isInitialSyncDone()) void refresh()
       }
     })
     return () => sub.remove()
@@ -352,24 +322,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(timer)
   }, [annee, refresh])
 
-  // Démonstration : nouvelle année → cartes vierges (12 nouveaux mois à régler) ; l'année
-  // écoulée reste consultable avec le sélecteur d'exercice.
-  const anneePrecedente = useRef(annee)
-  useEffect(() => {
-    if (anneePrecedente.current === annee) return
-    anneePrecedente.current = annee
-    if (!sessionRef.current) {
-      setStatutaireParAnnee((prev) => ({
-        ...prev,
-        [annee]: prev[annee] ?? Object.fromEntries(mockChorists.map((c) => [c.id, emptyCard()])),
-      }))
-    }
-  }, [annee])
-
   const signIn = useCallback(
     async (identifier: string, password: string) => {
-      const next = await api.login(identifier, password)
+      // Avant que le nouveau jeton soit enregistré : la file d'un éventuel utilisateur précédent
+      // ne doit jamais partir avec lui. setOwner (dans openSession) relance l'envoi.
+      syncManager.suspend()
+      let next: api.Session
+      try {
+        next = await api.login(identifier, password)
+      } catch (e) {
+        // Connexion refusée : l'utilisateur en place (s'il y en a un) reprend la synchronisation.
+        if (sessionRef.current) void syncManager.setOwner(String(sessionRef.current.membershipId))
+        throw e
+      }
       openSession(next)
+      // L'écran de connexion choisit ensuite entre l'accueil et la synchronisation initiale :
+      // les données d'un éventuel utilisateur précédent doivent déjà être effacées.
+      await ownerReady.current
       return next
     },
     [openSession]
@@ -378,6 +347,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const changePassword = useCallback(
     async (current: string, next: string) => {
       openSession(await api.changerMotDePasse(current, next))
+      await ownerReady.current
     },
     [openSession]
   )
@@ -385,233 +355,205 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const perms = useMemo(() => computePerms(currentUser?.roles ?? []), [currentUser])
   const can = useCallback((perm: Permission) => currentUser !== null && perms[perm], [currentUser, perms])
 
-  /** Compte de démonstration : aucune session API. */
-  const loginAs = useCallback(
-    (id: number) => {
-      void api.clearToken()
-      generation.current++
-      sessionRef.current = null
-      setSession(null)
-      setApiRoleHistory([])
-      resetToDemo()
-      setUserId(id)
-    },
-    [resetToDemo]
-  )
-
   const logout = useCallback(() => {
-    void api.clearToken()
+    syncManager.suspend()
     closeSession()
+    void (async () => {
+      // Jeton lu puis effacé tout de suite ; la désinscription du push utilise cet ancien jeton
+      // (une reconnexion pendant ce temps garde son propre jeton intact).
+      const jeton = await api.jetonEnregistre()
+      await api.clearToken()
+      await desinscrirePush(jeton)
+    })()
   }, [closeSession])
 
-  /* ------------------------------ Actions ------------------------------ */
+  /* ------------------------------ Actions (écriture locale) ------------------------------ */
 
-  const roleLabelFor = useCallback((user: Chorist) => {
-    const role = user.roles.find((r) => r !== "choriste") ?? "choriste"
-    return roleLabels[role]
-  }, [])
+  const events = data.events
+
+  /** Événement affiché → enregistrement local (identifiant serveur ou provisoire). */
+  const evenementLocal = useCallback(
+    (eventId: number) => {
+      // parId : un identifiant provisoire reste valable après l'envoi de l'événement.
+      const ev = parId(events, eventId)
+      const record = ev?.localId ? evenementRepository.getByLocalId(ev.localId) : null
+      if (!ev || !record) throw refus("Cet événement n'existe plus.")
+      return { ev, record }
+    },
+    [events]
+  )
+
+  /** Lien vers l'événement d'un paiement ou d'une dépense : identifiant serveur, sinon identifiant local. */
+  const lienEvenement = useCallback(
+    (eventId: number) => {
+      const { record } = evenementLocal(eventId)
+      return record.serverId != null ? { evenementId: Number(record.serverId), evenementLocalId: null } : { evenementId: null, evenementLocalId: record.localId }
+    },
+    [evenementLocal]
+  )
+
+  const auteur = currentUser?.name ?? session?.nom ?? ""
 
   const confirmPaymentStatutaire = useCallback(
     async (chorishId: number, monthIndex: number, amount: number, year: number, details: api.DetailsPaiement) => {
-      if (sessionRef.current) {
-        await api.payerStatutaire(chorishId, monthIndex, year, amount, details)
-        await refresh()
-        return
-      }
-      setStatutaireParAnnee((prev) => {
-        const cartes = prev[year] ?? {}
-        const carte = [...(cartes[chorishId] ?? emptyCard())]
-        carte[monthIndex] = true
-        return { ...prev, [year]: { ...cartes, [chorishId]: carte } }
+      // Même règle que le serveur : un mois ne se paie qu'une fois.
+      if (statutaireParAnnee[year]?.[chorishId]?.[monthIndex]) throw refus(`Le mois de ${MONTHS[monthIndex]} ${year} est déjà réglé.`)
+      const membre = chorists.find((c) => c.id === chorishId)
+      paiementRepository.create({
+        type: "STATUTAIRE",
+        membreId: chorishId,
+        membreNom: membre?.name ?? "",
+        montant: amount,
+        mois: monthIndex,
+        annee: year,
+        evenementId: null,
+        evenementLocalId: null,
+        datePaiement: details.datePaiement,
+        mode: details.mode,
+        libelle: `Cotisation — ${MONTHS[monthIndex]} ${year}`,
+        recu: null,
+        auteur,
+        saisiLe: new Date().toISOString(),
       })
-      if (currentUser) {
-        setRecus((prev) => [
-          {
-            id: fabricateReceiptId(),
-            chorishId,
-            type: "Statutaire",
-            label: "Cotisation — " + MONTHS[monthIndex] + " " + year,
-            montant: amount,
-            date: frDateISO(details.datePaiement),
-            enregistrePar: currentUser.name + " (" + roleLabelFor(currentUser) + ")",
-            mode: details.mode,
-          },
-          ...prev,
-        ])
-      }
     },
-    [currentUser, roleLabelFor, refresh]
+    [statutaireParAnnee, chorists, auteur]
   )
 
   const confirmEventPayment = useCallback(
     async (eventId: number, chorishId: number, amount: number, details: api.DetailsPaiement) => {
-      if (sessionRef.current) {
-        await api.payerEvenement(chorishId, eventId, amount, details)
-        await refresh()
-        return
-      }
-      setEvents((prev) =>
-        prev.map((ev) =>
-          ev.id === eventId
-            ? {
-                ...ev,
-                contributions: {
-                  ...ev.contributions,
-                  [chorishId]: (ev.contributions[chorishId] || 0) + amount,
-                },
-              }
-            : ev
-        )
-      )
-      const ev = events.find((e) => e.id === eventId)
-      if (currentUser && ev) {
-        setRecus((prev) => [
-          {
-            id: fabricateReceiptId(),
-            chorishId,
-            type: "Événementielle",
-            label: ev.titre,
-            montant: amount,
-            date: frDateISO(details.datePaiement),
-            enregistrePar: currentUser.name,
-            eventId,
-            mode: details.mode,
-          },
-          ...prev,
-        ])
-      }
-    },
-    [events, currentUser, refresh]
-  )
-
-  const createEvent = useCallback(
-    async (input: NewEventInput) => {
-      if (sessionRef.current) {
-        await api.creerEvenement({
-          titre: input.titre,
-          type: input.type,
-          date: input.date,
-          budgetPrevisionnel: input.budgetPrevisionnel,
-          montantCotisation: input.cotisationMontant,
-        })
-        await refresh()
-        return
-      }
-      setEvents((prev) => {
-        const contributions: Record<number, number> = {}
-        chorists.forEach((c) => (contributions[c.id] = 0))
-        const newEv: Evenement = {
-          id: Math.max(...prev.map((e) => e.id)) + 1,
-          titre: input.titre || "Nouvel événement",
-          type: input.type,
-          date: input.date || new Date().toISOString().slice(0, 10),
-          description: input.description,
-          budgetPrevisionnel: input.budgetPrevisionnel || 0,
-          cotisationMontant: input.cotisationMontant || 1000,
-          inscrits: [],
-          depenses: [],
-          contributions,
-        }
-        return [...prev, newEv]
+      const { ev } = evenementLocal(eventId)
+      const membre = chorists.find((c) => c.id === chorishId)
+      paiementRepository.create({
+        type: "EVENEMENTIELLE",
+        membreId: chorishId,
+        membreNom: membre?.name ?? "",
+        montant: amount,
+        mois: null,
+        annee: null,
+        ...lienEvenement(eventId),
+        datePaiement: details.datePaiement,
+        mode: details.mode,
+        libelle: ev.titre,
+        recu: null,
+        auteur,
+        saisiLe: new Date().toISOString(),
       })
     },
-    [chorists, refresh]
+    [evenementLocal, lienEvenement, chorists, auteur]
+  )
+
+  const cancelPayment = useCallback(async (receiptLocalId: string, motif: string) => {
+    if (!motif.trim()) throw refus("Indiquez le motif de l'annulation.")
+    if (!paiementRepository.getByLocalId(receiptLocalId)) throw refus("Ce paiement n'existe plus.")
+    // Jamais envoyé : il disparaît simplement. Déjà sur le serveur : annulation envoyée avec son motif.
+    paiementRepository.remove(receiptLocalId, { motif: motif.trim() })
+  }, [])
+
+  const toEvenementData = (input: EventInput): EvenementData => ({
+    titre: input.titre.trim(),
+    type: input.type,
+    date: input.date,
+    budgetPrevisionnel: input.budgetPrevisionnel,
+    cotisationMontant: input.cotisationMontant,
+    inscriptionsOuvertes: input.inscriptionsOuvertes,
+  })
+
+  const createEvent = useCallback(async (input: EventInput) => {
+    evenementRepository.create(toEvenementData(input))
+  }, [])
+
+  const updateEvent = useCallback(
+    async (eventId: number, input: EventInput) => {
+      const { record } = evenementLocal(eventId)
+      evenementRepository.update(record.localId, toEvenementData(input))
+    },
+    [evenementLocal]
+  )
+
+  const deleteEvent = useCallback(
+    async (eventId: number) => {
+      const { record } = evenementLocal(eventId)
+      // Même règle que le serveur (409) : paiements (même annulés) ou dépenses (même rejetées) rattachés.
+      if (evenementARattachements(record))
+        throw refus("Des paiements ou des dépenses sont rattachés à cet événement : il ne peut pas être supprimé.")
+      evenementRepository.remove(record.localId)
+    },
+    [evenementLocal]
   )
 
   const toggleInscription = useCallback(
-    (eventId: number) => {
-      if (!currentUser) return
-      setEvents((prev) =>
-        prev.map((ev) => {
-          if (ev.id !== eventId) return ev
-          const inscrit = ev.inscrits.includes(currentUser.id)
-          return {
-            ...ev,
-            inscrits: inscrit
-              ? ev.inscrits.filter((id) => id !== currentUser.id)
-              : [...ev.inscrits, currentUser.id],
-          }
-        })
-      )
+    async (eventId: number, inscrire: boolean) => {
+      const { ev, record } = evenementLocal(eventId)
+      if (!session) throw refus("Connectez-vous pour vous inscrire.")
+      // Mes inscriptions à cet événement (serveur ou faites sur le téléphone).
+      const vise = (d: { evenementId: number | null; evenementLocalId?: string | null }) =>
+        (record.serverId != null && d.evenementId === Number(record.serverId)) || d.evenementLocalId === record.localId
+      const miennes = inscriptionRepository.getAll().filter((i) => i.data.membreId === session.membershipId && vise(i.data))
+      // Inscription refusée avant d'atteindre le serveur : elle ne compte pas (l'écran ne l'affiche pas).
+      const refusees = miennes.filter((i) => i.syncStatus === "failed" && i.serverId == null)
+      refusees.forEach((i) => inscriptionRepository.remove(i.localId))
+      const mienne = miennes.find((i) => !refusees.includes(i))
+      if (!inscrire) {
+        // Jamais envoyée : elle disparaît ; sinon la désinscription part au retour du réseau.
+        if (mienne) inscriptionRepository.remove(mienne.localId)
+        return
+      }
+      if (mienne) return // Déjà inscrit (double appui).
+      if (!ev.inscriptionsOuvertes) throw refus("Les inscriptions ne sont pas ouvertes pour cet événement.")
+      inscriptionRepository.create({ ...lienEvenement(eventId), membreId: session.membershipId, nom: session.nom })
     },
-    [currentUser]
+    [evenementLocal, lienEvenement, session]
   )
 
   const addDepense = useCallback(
     async (eventId: number, label: string, montant: number, details: DepenseDetails) => {
-      if (sessionRef.current) {
-        await api.creerDepense({ evenementId: eventId, libelle: label, montant, ...details })
-        await refresh()
-        return
-      }
-      setEvents((prev) =>
-        prev.map((ev) =>
-          ev.id === eventId
-            ? { ...ev, depenses: [...ev.depenses, { label, montant, valide: false }] }
-            : ev
-        )
-      )
+      depenseRepository.create({
+        ...lienEvenement(eventId),
+        libelle: label,
+        montant,
+        categorie: details.categorie,
+        beneficiaire: details.beneficiaire,
+        mode: details.mode,
+        statut: "EN_ATTENTE",
+        // Jour de la saisie (envoyé tel quel, même si la synchronisation a lieu plus tard).
+        date: aujourdhuiLocal(),
+        saisiParId: session?.userId ?? null,
+      })
     },
-    [refresh]
+    [lienEvenement, session]
   )
 
   const validateDepense = useCallback(
     async (eventId: number, idx: number) => {
-      if (sessionRef.current) {
-        const depense = events.find((e) => e.id === eventId)?.depenses[idx]
-        if (depense?.id == null) return
-        await api.validerDepense(depense.id)
-        await refresh()
-        return
-      }
-      setEvents((prev) =>
-        prev.map((ev) =>
-          ev.id === eventId
-            ? {
-                ...ev,
-                depenses: ev.depenses.map((d, i) => (i === idx ? { ...d, valide: true } : d)),
-              }
-            : ev
-        )
-      )
+      const depense = parId(events, eventId)?.depenses[idx]
+      const record = depense?.localId ? depenseRepository.getByLocalId(depense.localId) : null
+      if (!record) throw refus("Cette dépense n'existe plus.")
+      // Le serveur valide une dépense qu'il connaît : il faut d'abord qu'elle soit envoyée.
+      if (record.serverId == null) throw refus("Cette dépense n'est pas encore envoyée au serveur : elle pourra être validée ensuite.")
+      // Règles du serveur : une dépense se traite une fois, et jamais par celui qui l'a saisie.
+      if (record.data.statut !== "EN_ATTENTE") throw refus("Cette dépense a déjà été traitée.")
+      if (record.data.saisiParId != null && record.data.saisiParId === session?.userId)
+        throw refus("Vous ne pouvez pas valider une dépense que vous avez saisie.")
+      depenseRepository.update(record.localId, { statut: "VALIDEE" })
     },
-    [events, refresh]
+    [events, session]
   )
 
-  const saveChant = useCallback(
-    async (id: number | null, data: ChantInput) => {
-      if (sessionRef.current) {
-        if (id) throw new api.ApiError("La modification d'un chant n'est pas encore disponible.", 0)
-        await api.creerChant(data)
-        await refresh()
-        return
-      }
-      setChants((prev) => {
-        if (id) {
-          return prev.map((c) => (c.id === id ? { ...c, ...data } : c))
-        }
-        return [...prev, { id: Math.max(...prev.map((c) => c.id)) + 1, statut: "actif", ...data }]
-      })
-    },
-    [refresh]
-  )
-
-  const proposeDeleteSong = useCallback((id: number) => {
-    setChants((prev) => prev.map((c) => (c.id === id ? { ...c, statut: "a_valider" } : c)))
+  const createChant = useCallback(async (input: ChantInput) => {
+    chantRepository.create(input)
   }, [])
 
+  const chants = data.chants
   const deleteSong = useCallback(
     async (id: number) => {
-      if (sessionRef.current) {
-        await api.supprimerChant(id)
-        await refresh()
-        return
-      }
-      setChants((prev) => prev.filter((c) => c.id !== id))
+      const chant = parId(chants, id)
+      if (!chant?.localId) throw refus("Ce chant n'existe plus.")
+      chantRepository.remove(chant.localId)
     },
-    [refresh]
+    [chants]
   )
 
+  const recus = data.recus
   const receiptsFor = useCallback((chorishId: number) => recus.filter((r) => r.chorishId === chorishId), [recus])
 
   const value: AppContextValue = {
@@ -622,13 +564,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     roleHistory,
     session,
     authReady,
-    isDemo: session === null && userId !== null,
-    choraleNom: session?.chorale.nom ?? DEMO_CHORALE_NOM,
+    choraleNom: session?.chorale.nom ?? "",
     annee,
-    mensualite,
-    parametres,
-    syncing,
-    syncError,
+    mensualite: data.mensualite,
+    parametres: data.parametres ?? PARAMETRES_PAR_DEFAUT,
+    syncing: syncState === "syncing",
+    // Hors ligne, la bannière « Mode hors ligne » suffit : pas d'erreur de chargement affichée.
+    syncError: isOnline ? lastError : null,
     refresh,
     signIn,
     changePassword,
@@ -640,16 +582,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     anneesStatutaire,
     perms,
     can,
-    loginAs,
     logout,
     confirmPaymentStatutaire,
     confirmEventPayment,
+    cancelPayment,
     createEvent,
+    updateEvent,
+    deleteEvent,
     toggleInscription,
     addDepense,
     validateDepense,
-    saveChant,
-    proposeDeleteSong,
+    createChant,
     deleteSong,
     receiptsFor,
   }

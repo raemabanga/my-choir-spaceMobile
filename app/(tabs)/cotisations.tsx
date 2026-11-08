@@ -3,13 +3,12 @@ import { useState } from "react"
 import { Pressable, Text, View } from "react-native"
 
 import { Screen } from "../../components/layout"
-import { EventCotisationSheet, PaymentSheet } from "../../components/sheets/CotisationSheets"
+import { EventCotisationSheet, PaymentConfirmSheet } from "../../components/sheets/CotisationSheets"
 import { Card, CardTitle, Chip, ChipsRow, cx, Muted, Pill, ProgressBar, RowBetween, Seal, Select } from "../../components/ui"
 import { colors, shadows } from "../../constants/theme"
 import { useApp } from "../../context/AppContext"
 import { useSheet } from "../../context/SheetContext"
-import { MONTHS } from "../../data/mockData"
-import { fmt } from "../../lib/format"
+import { fmt, MONTHS } from "../../lib/format"
 
 /** Montant secondaire en Geist Mono (12,5px, couleur muted) ; pas via <Numeric> pour éviter un conflit text-[13px]/text-ink. */
 const MUTED_NUM = "font-sans-medium text-[12.5px] tabular-nums text-ink-light"
@@ -120,7 +119,7 @@ export default function CotisationsScreen() {
                             month={m}
                             paid={isPaid}
                             clickable={clickable}
-                            onPress={() => openSheet(<PaymentSheet chorishId={viewId} monthIndex={i} year={annee} />)}
+                            onPress={() => openSheet(<PaymentConfirmSheet chorishId={viewId} monthIndex={i} year={annee} />)}
                           />
                         </View>
                       </View>
@@ -141,7 +140,7 @@ export default function CotisationsScreen() {
           <Muted className="text-center">
             {canPay
               ? "Touchez un mois non réglé pour enregistrer le paiement."
-              : "Touchez une case pour voir le détail. Seuls la Trésorerie et la Commission recette peuvent enregistrer un paiement."}
+              : "Touchez une case pour voir le détail."}
           </Muted>
         </>
       ) : (
