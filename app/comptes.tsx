@@ -1,7 +1,7 @@
 // Écran « Comptes & Rôles » : équivalent mobile du module web (components/portail/modules/comptes.tsx).
 // Liste de cartes + bottom sheets (components/sheets/CompteSheets.tsx) au lieu du tableau du web.
 
-import { Info } from "lucide-react-native"
+import { Info, Lock, UserRound } from "lucide-react-native"
 import React, { useCallback, useEffect, useMemo, useState } from "react"
 import { ActivityIndicator, RefreshControl, ScrollView, Text, View } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
@@ -36,7 +36,7 @@ function CompteCard({ compte, estMoi, protege, onPress }: { compte: Compte; estM
             {compte.nom}
             {estMoi ? <Text className="font-sans text-ink-light"> (vous)</Text> : null}
           </Text>
-          {compte.telephone ? <Text className="mt-0.5 font-mono text-[12px] tabular-nums text-ink-soft">{compte.telephone}</Text> : null}
+          {compte.telephone ? <Text className="mt-0.5 font-sans text-[12px] tabular-nums text-ink-soft">{compte.telephone}</Text> : null}
         </View>
         <Chevron />
       </View>
@@ -142,7 +142,7 @@ export default function ComptesScreen() {
       >
         <Container>
           {!autorise ? (
-            <EmptyState icon="🔒" title="Accès réservé" subtitle="La gestion des comptes est réservée à l'Admin de chorale, au Bureau exécutif et au Secrétaire général." />
+            <EmptyState icon={Lock} title="Accès réservé" subtitle="La gestion des comptes est réservée à l’Admin de chorale, au Bureau exécutif et au Secrétaire général." />
           ) : (
             <>
               {isDemo ? (
@@ -193,7 +193,7 @@ export default function ComptesScreen() {
                 </View>
               ) : visibles.length === 0 && !erreur ? (
                 <EmptyState
-                  icon="👤"
+                  icon={UserRound}
                   title={comptes.length === 0 ? "Aucun compte" : "Aucun résultat"}
                   subtitle={comptes.length === 0 ? "Créez le premier compte de la chorale." : "Modifiez la recherche ou le filtre."}
                 />

@@ -4,6 +4,7 @@ import { View } from "react-native"
 
 import { Screen } from "../../components/layout"
 import { ChantFormSheet } from "../../components/sheets/ChantSheets"
+import { Music } from "lucide-react-native"
 import { Button, Card, CardTitle, Chip, ChipsRow, EmptyState, Muted, Pill, RowBetween, SearchBar } from "../../components/ui"
 import { useApp } from "../../context/AppContext"
 import { useSheet } from "../../context/SheetContext"
@@ -37,7 +38,7 @@ export default function ChantsScreen() {
       ) : null}
 
       {filtered.length === 0 ? (
-        <EmptyState icon="🎼" title="Aucun chant trouvé" subtitle="Essayez une autre recherche ou catégorie." />
+        <EmptyState icon={Music} title="Aucun chant trouvé" subtitle="Essayez une autre recherche ou catégorie." />
       ) : (
         filtered.map((c) => (
           <Card key={c.id} accessibilityLabel={c.titre} onPress={() => router.push(`/chant/${c.id}`)}>

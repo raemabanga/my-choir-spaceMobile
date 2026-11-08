@@ -9,12 +9,12 @@ import { useSheet } from "../../context/SheetContext"
 import { eventBilan, fmt, formatDateLong } from "../../lib/format"
 
 /** Chiffres en Geist Mono imbriqués dans un texte muted (taille et couleur héritées). */
-const NUM = "font-mono-medium tabular-nums"
+const NUM = "font-sans-medium tabular-nums"
 /** Montant en gras (strong) Geist Mono, imbriqué dans un texte muted. */
-const STRONG_AMOUNT = "font-mono-semibold tabular-nums"
+const STRONG_AMOUNT = "font-sans-semibold tabular-nums"
 
 export default function EvenementsScreen() {
-  const { events, can } = useApp()
+  const { events, can, isDemo } = useApp()
   const { openSheet } = useSheet()
 
   return (
@@ -32,8 +32,13 @@ export default function EvenementsScreen() {
             </RowBetween>
             <Muted>
               <Text className={NUM}>{formatDateLong(ev.date)}</Text>
-              {" · "}
-              <Text className={NUM}>{ev.inscrits.length}</Text> inscrit(s)
+              {/* Inscriptions : démonstration uniquement (pas encore gérées par l'API). */}
+              {isDemo ? (
+                <>
+                  {" · "}
+                  <Text className={NUM}>{ev.inscrits.length}</Text> inscrit(s)
+                </>
+              ) : null}
             </Muted>
             {can("budget") ? (
               <View className="mt-2.5">

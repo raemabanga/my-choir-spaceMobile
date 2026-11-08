@@ -24,10 +24,10 @@ export function BackHeader({ title, right }: { title: string; right?: React.Reac
           <ChevronLeft size={24} color={colors.navy} strokeWidth={2} />
         </Pressable>
         <View className="min-w-0 flex-1">
-          <Text accessibilityRole="header" numberOfLines={1} className="font-sans-semibold text-[22px] tracking-[-0.2px] text-navy">
+          <Text accessibilityRole="header" numberOfLines={1} className="font-sans-semibold text-[20px] tracking-[-0.4px] text-ink">
             {title}
           </Text>
-          <Text numberOfLines={1} className="mt-px font-sans text-[11.5px] text-ink-light">
+          <Text numberOfLines={1} className="mt-px font-sans text-[12px] text-ink-light">
             {choraleNom}
           </Text>
         </View>
@@ -49,11 +49,11 @@ export function AppHeader({ title }: { title: string }) {
       {/* Largeur max et gouttière dépendent de la taille d'écran : en style. */}
       <View className="w-full flex-row items-center justify-between gap-3 self-center pb-3.5 pt-0.5" style={{ maxWidth, paddingHorizontal: gutter }}>
         <View className="min-w-0 flex-1">
-          <Text accessibilityRole="header" numberOfLines={1} className="font-sans-semibold text-[22px] tracking-[-0.2px] text-navy">
+          <Text accessibilityRole="header" numberOfLines={1} className="font-sans-semibold text-[20px] tracking-[-0.4px] text-ink">
             {title}
           </Text>
           {/* Sur deux lignes au besoin plutôt que tronqué quand la pastille des rôles est longue. */}
-          <Text numberOfLines={2} className="mt-px font-sans text-[11.5px] text-ink-light">
+          <Text numberOfLines={2} className="mt-px font-sans text-[12px] text-ink-light">
             {choraleNom}
           </Text>
         </View>
@@ -62,10 +62,10 @@ export function AppHeader({ title }: { title: string }) {
           accessibilityRole="button"
           accessibilityLabel={`Mes rôles : ${roles}. Ouvrir le profil`}
           hitSlop={8}
-          className="max-w-[50%] flex-row items-center gap-1.5 rounded-full bg-navy py-1.5 pl-2 pr-2.5"
+          className="max-w-[50%] flex-row items-center gap-1.5 rounded-full bg-primary-soft py-1.5 pl-2.5 pr-3"
         >
-          <View className="h-[7px] w-[7px] rounded-full bg-gold" />
-          <Text numberOfLines={2} className="shrink font-sans-semibold text-[11px] text-gold-soft">
+          <View className="h-1.5 w-1.5 rounded-full bg-gold" />
+          <Text numberOfLines={2} className="shrink font-sans-medium text-[12px] text-navy">
             {roles}
           </Text>
         </Pressable>

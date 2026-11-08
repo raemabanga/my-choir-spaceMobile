@@ -7,10 +7,13 @@ export function DateField({
   label,
   value,
   onChange,
+  maximumDate,
 }: {
   label: string
   value: Date
   onChange: (date: Date) => void
+  /** Date la plus tardive possible (ex. aujourd'hui pour un paiement). */
+  maximumDate?: Date
 }) {
   const [show, setShow] = useState(false)
 
@@ -21,7 +24,7 @@ export function DateField({
       <View>
         <FieldLabel>{label}</FieldLabel>
         <View className={`${fieldBoxClasses(false)} items-start pl-1.5`}>
-          <DateTimePicker value={value} mode="date" display="compact" onChange={(_, date) => date && onChange(date)} themeVariant="light" />
+          <DateTimePicker value={value} mode="date" display="compact" maximumDate={maximumDate} onChange={(_, date) => date && onChange(date)} themeVariant="light" />
         </View>
       </View>
     )
@@ -43,6 +46,7 @@ export function DateField({
           value={value}
           mode="date"
           display="default"
+          maximumDate={maximumDate}
           onChange={(_, date) => {
             setShow(false)
             if (date) onChange(date)

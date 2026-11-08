@@ -4,6 +4,7 @@ import { Text, View } from "react-native"
 
 import { Screen } from "../../components/layout"
 import { ReceiptSheet } from "../../components/sheets/CotisationSheets"
+import { Receipt } from "lucide-react-native"
 import { Avatar, Button, Card, CardTitle, Chevron, EmptyState, ListRow, Muted, Pill, RowBetween, SectionHeader } from "../../components/ui"
 import { useApp } from "../../context/AppContext"
 import { useSheet } from "../../context/SheetContext"
@@ -29,7 +30,7 @@ export default function ProfilScreen() {
         <View className="min-w-0 flex-1">
           <CardTitle>{currentUser.name}</CardTitle>
           <Muted>
-            Membre n° <Text className="font-mono-medium tabular-nums">{currentUser.numero}</Text>
+            Membre n° <Text className="font-sans-medium tabular-nums">{currentUser.numero}</Text>
           </Muted>
         </View>
       </Card>
@@ -40,7 +41,7 @@ export default function ProfilScreen() {
           <RowBetween key={r} className="py-1.5">
             <Pill variant="gold">{roleLabels[r]}</Pill>
             {currentUser.mandat && r !== "choriste" ? (
-              <Muted className="font-mono-medium tabular-nums">
+              <Muted className="font-sans-medium tabular-nums">
                 {currentUser.mandat.debut} → {currentUser.mandat.fin}
               </Muted>
             ) : null}
@@ -80,7 +81,7 @@ export default function ProfilScreen() {
 
       <SectionHeader title="Mes reçus" />
       {myReceipts.length === 0 ? (
-        <EmptyState icon="🧾" title="Aucun reçu" subtitle="Vos reçus apparaîtront ici après un paiement." />
+        <EmptyState icon={Receipt} title="Aucun reçu" subtitle="Vos reçus apparaîtront ici après un paiement." />
       ) : (
         <Card className="py-1">
           {myReceipts.map((r, i) => (

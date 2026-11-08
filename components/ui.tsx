@@ -1,11 +1,14 @@
-// Composants partagés, calqués sur les classes CSS du prototype cantoria-app-mobile-v2.html
-// (.card, .pill, .btn, .progress, .seal, .chip, .avatar, .listrow, .empty, .searchbar, champs, .qr…).
+// Composants partagés — design system My Choir Space (carte, pastille, bouton, progression,
+// case de mois, filtre, avatar, ligne de liste, état vide, recherche, champs, QR…).
 // Style en classes NativeWind (tailwind.config.js) ; `style` n'est utilisé que pour les ombres,
 // les valeurs calculées et les props des composants tiers.
+// Règles : sentence case, deux couleurs de marque (marine + turquoise en petites touches),
+// statuts en pastilles douces avec point, montants en Geist à chiffres tabulaires,
+// Geist Mono réservé aux numéros de reçu et aux codes, aucune emoji.
 
 import { Picker } from "@react-native-picker/picker"
 import { LinearGradient } from "expo-linear-gradient"
-import { Search, type LucideIcon } from "lucide-react-native"
+import { ChevronRight, Search, type LucideIcon } from "lucide-react-native"
 import React, { useState } from "react"
 import { Pressable, Text, TextInput, TextInputProps, TextProps, View, ViewProps } from "react-native"
 import Svg, { Rect } from "react-native-svg"
@@ -92,8 +95,8 @@ export function PressableScale({
 
 export function SectionHeader({ title, className }: { title: string; className?: string }) {
   return (
-    <View className={cx("mb-2.5 mt-[22px] flex-row items-center gap-2", className)}>
-      <Text accessibilityRole="header" className="font-sans-semibold text-[12px] uppercase tracking-[0.6px] text-ink-light">
+    <View className={cx("mb-2.5 mt-6 flex-row items-center gap-2", className)}>
+      <Text accessibilityRole="header" className="font-sans-semibold text-[16px] tracking-[-0.3px] text-ink">
         {title}
       </Text>
       <LinearGradient colors={[colors.ruleStart, colors.ruleEnd]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={{ flex: 1, height: 1 }} />
@@ -101,9 +104,18 @@ export function SectionHeader({ title, className }: { title: string; className?:
   )
 }
 
-/** Titre d'un bottom sheet (.sheet h2). */
+/** Overline : 11px, semibold, majuscules, +0.06em (en-têtes de bloc, libellés techniques). */
+export function Overline({ children, light, className }: { children: React.ReactNode; light?: boolean; className?: string }) {
+  return (
+    <Text className={cx("font-sans-semibold text-[11px] uppercase tracking-[0.66px]", light ? "text-on-navy-muted" : "text-ink-light", className)}>
+      {children}
+    </Text>
+  )
+}
+
+/** Titre d'un bottom sheet. */
 export function SheetTitle({ children }: { children: React.ReactNode }) {
-  return <Text className="mb-1 font-sans-semibold text-[19px] tracking-[-0.2px] text-navy">{children}</Text>
+  return <Text className="mb-1 font-sans-semibold text-[20px] tracking-[-0.4px] text-ink">{children}</Text>
 }
 
 /* ------------------------------------- Carte (.card) ------------------------------------- */
@@ -140,21 +152,26 @@ export function Card({
 
 /** Titre de carte (.card h3). */
 export function CardTitle({ children, light, className }: { children: React.ReactNode; light?: boolean; className?: string }) {
-  return <Text className={cx("mb-1 font-sans-semibold text-[16px] tracking-[-0.2px]", light ? "text-paper" : "text-ink", className)}>{children}</Text>
+  return <Text className={cx("mb-1 font-sans-semibold text-[16px] tracking-[-0.3px]", light ? "text-paper" : "text-ink", className)}>{children}</Text>
 }
 
 /** Texte secondaire (.muted) ; `light` pour la carte sombre. */
 export function Muted({ children, light, className, style }: { children: React.ReactNode; light?: boolean; className?: string; style?: TextProps["style"] }) {
   return (
-    <Text className={cx("font-sans text-[12.5px]", light ? "text-on-navy-muted" : "text-ink-light", className)} style={style}>
+    <Text className={cx("font-sans text-[13px] leading-[19px]", light ? "text-on-navy-muted" : "text-ink-light", className)} style={style}>
       {children}
     </Text>
   )
 }
 
-/** Valeur mise en avant (montants, dates, numéros) en Geist Mono à chiffres tabulaires. */
+/** Valeur mise en avant (montants, dates) en Geist à chiffres tabulaires. */
 export function Numeric({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <Text className={cx("font-mono-medium text-[13px] tabular-nums text-ink", className)}>{children}</Text>
+  return <Text className={cx("font-sans-medium text-[13px] tabular-nums text-ink", className)}>{children}</Text>
+}
+
+/** Numéro de reçu ou code technique (RCU-2026-0015) : seul usage de Geist Mono. */
+export function Code({ children, className }: { children: React.ReactNode; className?: string }) {
+  return <Text className={cx("font-mono-medium text-[12.5px] text-ink", className)}>{children}</Text>
 }
 
 export function RowBetween({ children, className }: { children: React.ReactNode; className?: string }) {
@@ -179,29 +196,32 @@ export function KeyValue({
   return (
     <RowBetween className={first ? undefined : "mt-2"}>
       <Muted>{label}</Muted>
-      <Text className={cx("shrink text-right text-[13px] tabular-nums", mono ? "font-mono-semibold" : "font-sans-bold", valueClassName ?? "text-ink")}>{value}</Text>
+      <Text className={cx("shrink text-right text-[13px] tabular-nums", mono ? "font-sans-semibold" : "font-sans-medium", valueClassName ?? "text-ink")}>{value}</Text>
     </RowBetween>
   )
 }
 
-/* ------------------------------------- Badge (.pill) ------------------------------------- */
+/* ------------------------------------- Pastille (badge) ------------------------------------- */
 
-export type PillVariant = "default" | "gold" | "burg" | "green" | "pending"
+/** default : neutre · gold : accent turquoise · burg : impayé / rejeté · green : payé / validé · pending : en retard / en attente · info. */
+export type PillVariant = "default" | "gold" | "burg" | "green" | "pending" | "info"
 
-const pillClasses: Record<PillVariant, { bg: string; text: string }> = {
-  default: { bg: "bg-surface-soft", text: "text-ink-soft" },
-  gold: { bg: "bg-gold-soft", text: "text-gold-ink" },
-  burg: { bg: "bg-danger-bg", text: "text-danger" },
-  green: { bg: "bg-success-bg", text: "text-success" },
-  pending: { bg: "bg-warning-bg", text: "text-warning" },
+const pillClasses: Record<PillVariant, { bg: string; text: string; dot: string | null }> = {
+  default: { bg: "bg-surface-soft", text: "text-ink-soft", dot: null },
+  gold: { bg: "bg-gold-soft", text: "text-gold-ink", dot: null },
+  burg: { bg: "bg-danger-bg", text: "text-danger", dot: "bg-danger" },
+  green: { bg: "bg-success-bg", text: "text-success", dot: "bg-success" },
+  pending: { bg: "bg-warning-bg", text: "text-warning", dot: "bg-warning" },
+  info: { bg: "bg-info-bg", text: "text-info", dot: "bg-info" },
 }
 
-/** Badge en capitales ; `mono` pour un montant (Geist Mono, chiffres tabulaires). */
+/** Pastille en sentence case ; les statuts portent un point de couleur. `mono` : chiffres tabulaires. */
 export function Pill({ children, variant = "default", mono }: { children: React.ReactNode; variant?: PillVariant; mono?: boolean }) {
   const s = pillClasses[variant]
   return (
-    <View className={cx("self-start rounded-full px-[9px] py-1", s.bg)}>
-      <Text className={cx("text-[10.5px] uppercase tracking-[0.4px]", mono ? "font-mono-semibold tabular-nums" : "font-sans-bold", s.text)}>{children}</Text>
+    <View className={cx("flex-row items-center gap-1.5 self-start rounded-full px-2.5 py-[3px]", s.bg)}>
+      {s.dot ? <View className={cx("h-1.5 w-1.5 rounded-full", s.dot)} /> : null}
+      <Text className={cx("font-sans-medium text-[12px]", mono && "tabular-nums", s.text)}>{children}</Text>
     </View>
   )
 }
@@ -211,11 +231,15 @@ export function Pill({ children, variant = "default", mono }: { children: React.
 export type ButtonVariant = "primary" | "gold" | "outline" | "ghost" | "danger"
 
 const buttonClasses: Record<ButtonVariant, { box: string; text: string; icon: string }> = {
+  /** Principal : marine plein. Un seul par écran de préférence. */
   primary: { box: "bg-navy", text: "text-paper", icon: colors.paper },
-  gold: { box: "bg-gold", text: "text-navy", icon: colors.navy },
-  /** « Secondaire » : or pâle, bordure or à 35 %. */
-  outline: { box: "border border-gold-35 bg-gold-soft", text: "text-navy", icon: colors.navy },
-  ghost: { box: "bg-surface-soft", text: "text-navy", icon: colors.navy },
+  /** Secondaire : turquoise plein (couleur d'accent). */
+  gold: { box: "bg-gold", text: "text-paper", icon: colors.paper },
+  /** Contour : blanc, bordure grise. */
+  outline: { box: "border border-line-strong bg-paper", text: "text-ink", icon: colors.ink },
+  /** Discret : gris très clair. */
+  ghost: { box: "bg-surface-soft", text: "text-ink", icon: colors.ink },
+  /** Destructif : rouge doux (action répétée dans les listes, sans aplat criard). */
   danger: { box: "bg-danger-bg", text: "text-danger", icon: colors.danger },
 }
 
@@ -248,16 +272,16 @@ export function Button({
       accessibilityState={{ disabled }}
       hitSlop={small ? 6 : undefined}
       className={cx(
-        "flex-row items-center justify-center gap-1.5 rounded-full",
-        small ? "min-h-[32px] px-[13px] py-[7px]" : "min-h-touch px-[18px] py-[11px]",
+        "flex-row items-center justify-center gap-2 rounded-field",
+        small ? "min-h-[32px] px-3 py-1.5" : "min-h-touch px-[18px] py-[11px]",
         block ? "self-stretch" : "self-start",
         disabled && "opacity-50",
         s.box,
         className
       )}
     >
-      {Icon ? <Icon size={small ? 13 : 15} color={s.icon} strokeWidth={2} /> : null}
-      <Text className={cx("font-sans-bold", small ? "text-[11.5px]" : "text-[13px]", s.text)}>{title}</Text>
+      {Icon ? <Icon size={small ? 14 : 16} color={s.icon} strokeWidth={1.75} /> : null}
+      <Text className={cx("font-sans-semibold", small ? "text-[12.5px]" : "text-[14px]", s.text)}>{title}</Text>
     </PressableScale>
   )
 }
@@ -270,7 +294,7 @@ export function ProgressBar({ percent, light }: { percent: number; light?: boole
     <View
       accessibilityRole="progressbar"
       accessibilityValue={{ min: 0, max: 100, now: Math.round(clamped) }}
-      className={cx("mb-1 mt-2 h-2 overflow-hidden rounded-full", light ? "bg-on-navy-track" : "bg-surface-soft")}
+      className={cx("mb-1 mt-2 h-1.5 overflow-hidden rounded-full", light ? "bg-on-navy-track" : "bg-line")}
     >
       {/* Largeur calculée : seule valeur en style. */}
       <View className="h-full rounded-full bg-gold" style={{ width: `${clamped}%` }} />
@@ -287,9 +311,9 @@ export function Chip({ label, active, onPress }: { label: string; active?: boole
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
       hitSlop={{ top: 6, bottom: 6 }}
-      className={cx("min-h-[32px] justify-center rounded-full border-[1.3px] px-3", active ? "border-navy bg-navy" : "border-line-strong bg-paper")}
+      className={cx("min-h-[34px] justify-center rounded-full border px-3.5", active ? "border-navy bg-navy" : "border-line-strong bg-paper")}
     >
-      <Text className={cx("font-sans-semibold text-[11.5px]", active ? "text-paper" : "text-slate")}>{label}</Text>
+      <Text className={cx("font-sans-medium text-[13px]", active ? "text-paper" : "text-ink-soft")}>{label}</Text>
     </Pressable>
   )
 }
@@ -351,11 +375,11 @@ export function ListRow({
     >
       {left}
       <View className="min-w-0 flex-1">
-        <Text numberOfLines={1} className="font-sans-bold text-[13.5px] text-ink">
+        <Text numberOfLines={1} className="font-sans-medium text-[14px] text-ink">
           {title}
         </Text>
         {subtitle ? (
-          <Text numberOfLines={2} className="font-sans text-[11.5px] text-ink-light">
+          <Text numberOfLines={2} className="font-sans text-[12px] text-ink-light">
             {subtitle}
           </Text>
         ) : null}
@@ -365,19 +389,24 @@ export function ListRow({
   )
 }
 
-/** Chevron « › » des lignes cliquables (.chev). */
+/** Chevron des lignes cliquables. */
 export function Chevron() {
-  return <Text className="font-sans text-[16px] text-ink-light">›</Text>
+  return <ChevronRight size={18} color={colors.n400} strokeWidth={1.75} />
 }
 
-/* ------------------------------------ État vide (.empty) ------------------------------------ */
+/* ------------------------------------ État vide ------------------------------------ */
 
-export function EmptyState({ icon, title, subtitle }: { icon?: string; title: string; subtitle: string }) {
+/** État vide : icône lucide dans une tuile grise, titre, explication (dit pourquoi). */
+export function EmptyState({ icon: Icon, title, subtitle }: { icon?: LucideIcon; title: string; subtitle: string }) {
   return (
     <View className="items-center px-3 py-9">
-      {icon ? <Text className="mb-2 text-[30px]">{icon}</Text> : null}
-      <Text className="mb-1 font-sans-semibold text-[15px] tracking-[-0.2px] text-navy">{title}</Text>
-      <Text className="text-center font-sans text-[13px] text-ink-light">{subtitle}</Text>
+      {Icon ? (
+        <View className="mb-3 h-12 w-12 items-center justify-center rounded-tile bg-surface-soft">
+          <Icon size={22} color={colors.luna500} strokeWidth={1.75} />
+        </View>
+      ) : null}
+      <Text className="mb-1 font-sans-semibold text-[15px] tracking-[-0.2px] text-ink">{title}</Text>
+      <Text className="text-center font-sans text-[13px] leading-[19px] text-ink-light">{subtitle}</Text>
     </View>
   )
 }
@@ -386,8 +415,8 @@ export function EmptyState({ icon, title, subtitle }: { icon?: string; title: st
 
 export function SearchBar(props: TextInputProps) {
   return (
-    <View className="mb-3 min-h-touch flex-row items-center gap-2 rounded-full border-[1.5px] border-line bg-paper px-3.5">
-      <Search size={16} color={colors.inkLight} strokeWidth={2} />
+    <View className="mb-3 min-h-touch flex-row items-center gap-2 rounded-field border border-line-strong bg-paper px-3">
+      <Search size={16} color={colors.n400} strokeWidth={1.75} />
       <TextInput
         placeholderTextColor={colors.inkLight}
         accessibilityLabel={props.placeholder}
@@ -402,15 +431,15 @@ export function SearchBar(props: TextInputProps) {
 
 /** Libellé de champ (label.field). `first` : sans marge haute. */
 export function FieldLabel({ children, first }: { children: React.ReactNode; first?: boolean }) {
-  return <Text className={cx("mb-1.5 font-sans-bold text-[11.5px] tracking-[0.2px] text-ink-soft", first ? "mt-0" : "mt-3")}>{children}</Text>
+  return <Text className={cx("mb-1.5 font-sans-medium text-[13px] text-ink", first ? "mt-0" : "mt-3")}>{children}</Text>
 }
 
-/** Contour or 2px du champ actif (propriétés `outline*` : non couvertes par NativeWind). */
-const focusOutline = { outlineColor: colors.gold, outlineWidth: 2, outlineOffset: 1, outlineStyle: "solid" as const }
+/** Anneau turquoise 3px à 45 % du champ actif (propriétés `outline*` : non couvertes par NativeWind). */
+const focusOutline = { outlineColor: colors.focusRing, outlineWidth: 3, outlineOffset: 0, outlineStyle: "solid" as const }
 
-/** Classes de la boîte d'un champ ; au focus : bordure gold-strong (+ contour or via `focusOutline`). */
+/** Classes de la boîte d'un champ ; au focus : bordure turquoise (+ anneau via `focusOutline`). */
 export function fieldBoxClasses(focused: boolean, disabled?: boolean) {
-  return cx("rounded-field border", focused ? "border-gold-strong" : "border-line-strong", disabled ? "bg-surface-soft" : "bg-paper")
+  return cx("rounded-field border", focused ? "border-gold" : "border-line-strong", disabled ? "bg-surface-soft" : "bg-paper")
 }
 
 export type FieldHandle = React.ComponentRef<typeof TextInput>
@@ -448,8 +477,8 @@ export function Field(
             onBlur?.(e)
           }}
           className={cx(
-            "flex-1 px-[13px] py-[11px] text-[13.5px]",
-            mono ? "font-mono tabular-nums" : "font-sans",
+            "min-w-0 flex-1 px-3 py-[11px] text-[15px]",
+            mono ? "font-sans tabular-nums" : "font-sans",
             multiline ? "min-h-[90px]" : "min-h-touch",
             editable === false ? "text-ink-soft" : "text-ink"
           )}
@@ -484,8 +513,8 @@ export function Select<T extends string | number>({
           selectedValue={value}
           onValueChange={(v) => onChange(v as T)}
           accessibilityLabel={label}
-          style={{ color: colors.ink, fontFamily: fonts.regular, fontSize: 13.5, minHeight: MIN_TOUCH, paddingHorizontal: 13, borderWidth: 0, backgroundColor: colors.paper }}
-          dropdownIconColor={colors.navy}
+          style={{ color: colors.ink, fontFamily: fonts.regular, fontSize: 15, minHeight: MIN_TOUCH, paddingHorizontal: 12, borderWidth: 0, backgroundColor: colors.paper }}
+          dropdownIconColor={colors.inkLight}
         >
           {options.map((opt) => (
             <Picker.Item key={String(opt.value)} label={opt.label} value={opt.value} />
@@ -506,33 +535,53 @@ export function FormRow2({ children }: { children: [React.ReactNode, React.React
   )
 }
 
-/* --------------------------------- Case de cotisation (.seal) --------------------------------- */
+/* --------------------------------- Case de mois (carte 12 mois) --------------------------------- */
 
 /**
- * Case ronde d'un mois sur la carte de cotisation.
- * Payé : rond or pâle, bordure or, « ✓ payé » en vert. À encaisser (si droit) : pointillé gold-strong, tactile.
- * Non payé : pointillé line-strong sur fond surface.
+ * Case d'un mois sur la carte de cotisation (grille 4 × 3).
+ * Payé : vert doux, libellé « Payé ». Impayé : fond blanc, bordure rouge douce, libellé « Impayé ».
+ * Tactile seulement si l'utilisateur peut enregistrer le paiement.
  */
 export function Seal({ month, paid, clickable, onPress }: { month: string; paid: boolean; clickable?: boolean; onPress?: () => void }) {
   return (
     <PressableScale
-      scale={0.93}
+      scale={0.96}
       onPress={clickable ? onPress : undefined}
       disabled={!clickable}
       accessibilityRole={clickable ? "button" : undefined}
-      accessibilityLabel={`${month} : ${paid ? "payé" : clickable ? "non payé, toucher pour enregistrer le paiement" : "non payé"}`}
+      accessibilityLabel={`${month} : ${paid ? "payé" : clickable ? "impayé, toucher pour enregistrer le paiement" : "impayé"}`}
       className={cx(
-        "aspect-square items-center justify-center rounded-full border-[1.5px]",
-        paid ? "border-solid border-gold bg-gold-soft" : cx("border-dashed bg-surface", clickable ? "border-gold-strong" : "border-line-strong")
+        "min-h-[52px] justify-center rounded-row border px-2.5 py-2",
+        paid ? "border-success-bg bg-success-bg" : "border-danger-line bg-paper"
       )}
     >
-      <Text className={cx("text-[9px] tracking-[0.5px]", paid ? "font-mono-semibold text-gold-ink" : "font-mono text-ink-light")}>{month}</Text>
-      {paid ? <Text className="mt-px font-sans-semibold text-[10.5px] text-success">✓ payé</Text> : null}
+      <Text numberOfLines={1} className="font-sans-semibold text-[13px] text-ink">
+        {month}
+      </Text>
+      <Text numberOfLines={1} className={cx("mt-0.5 font-sans-medium text-[11px]", paid ? "text-success" : "text-danger")}>
+        {paid ? "Payé" : "Impayé"}
+      </Text>
     </PressableScale>
   )
 }
 
-/* ---------------------------------------- QR du reçu (.qr) ---------------------------------------- */
+/* --------------------------------- Motif de cercles (bloc marine) --------------------------------- */
+
+/**
+ * Seul motif décoratif du design system : grands cercles doux (LUNA 500) sur un bloc marine.
+ * Réservé à la connexion et à l'en-tête de l'accueil. Le parent doit être `relative overflow-hidden`.
+ */
+export function NavyCircles() {
+  return (
+    <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" className="absolute inset-0">
+      <View className="absolute -left-16 -top-20 h-56 w-56 rounded-full bg-luna-500 opacity-60" />
+      <View className="absolute -right-12 top-10 h-40 w-40 rounded-full bg-luna-500 opacity-70" />
+      <View className="absolute -bottom-24 left-1/3 h-44 w-44 rounded-full bg-luna-500 opacity-40" />
+    </View>
+  )
+}
+
+/* ---------------------------------------- QR du reçu ---------------------------------------- */
 
 /** Motif QR décoratif (damier), comme dans le prototype. */
 export function QrPlaceholder({ size = 70 }: { size?: number }) {

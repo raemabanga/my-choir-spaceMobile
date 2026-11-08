@@ -5,7 +5,7 @@
 import * as SecureStore from "expo-secure-store"
 import { Platform } from "react-native"
 import { fromApiRole, fromApiRoles, ROLE_LABEL, TO_API_ROLE } from "./roles"
-import type { Role } from "../types"
+import type { Chant, Evenement, Recu, Role } from "../types"
 
 /**
  * Adresse du backend. Sur un téléphone, `localhost` désigne le téléphone lui-même :
@@ -312,4 +312,221 @@ export async function reinitialiserMotDePasse(compteId: number) {
     { method: "POST" }
   )
   return { compte: toCompte(compte), motDePasse: temporaryPassword }
+}
+
+/* ------------------------------ Données de la chorale (mêmes routes que le web) ------------------------------ */
+// Les identifiants de membres sont ceux des adhésions (Session.membershipId), comme sur le web.
+
+type ApiStatutMois = "NON_DU" | "IMPAYE" | "PAYE" | "PAYE_EN_RETARD"
+
+interface ApiStatutaire {
+  mensualite: number
+  montantAnnuel: number
+  exercices: { annee: number; cartes: { membreId: number; nom: string; mois: ApiStatutMois[] }[] }[]
+}
+
+interface ApiEvenement {
+  id: number
+  titre: string
+  date: string | null
+  type: string
+  budgetPrevisionnel: number
+  montantCotisation: number
+  collecte: number
+  attendu: number
+  versements: { membreId: number; nom: string; montant: number }[]
+}
+
+export interface ApiDepense {
+  id: number
+  date: string
+  libelle: string
+  categorie: string
+  montant: number
+  evenementId: number | null
+  statut: "EN_ATTENTE" | "VALIDEE" | "REJETEE"
+}
+
+interface ApiPaiement {
+  id: number
+  /** Date de saisie. */
+  date: string
+  /** "AAAA-MM-JJ" : jour où le membre a payé (null pour les paiements plus anciens). */
+  datePaiement: string | null
+  /** Code du mode de règlement (null pour les paiements plus anciens). */
+  mode: string | null
+  membre: { id: number; nom: string }
+  libelle: string
+  montant: number
+  evenementId: number | null
+  recu: string
+  auteur: string
+  annulation: { date: string; par: string; motif: string } | null
+}
+
+interface ApiChant {
+  id: number
+  titre: string
+  compositeur: string
+  tonalite: string
+  categorie: string
+  paroles: string
+}
+
+export interface Membre {
+  id: number
+  nom: string
+}
+
+/** Le backend enregistre les types en minuscules ("concert") : majuscule initiale pour l'affichage. */
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+
+const todayISO = () => {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+/** Membres actifs de la chorale (rôles financiers uniquement : 403 pour les autres). */
+export function fetchMembres() {
+  return request<Membre[]>("/espace/membres")
+}
+
+/**
+ * Cartes de cotisation de chaque exercice (années ayant des paiements, et toujours l'année en cours) :
+ * toutes pour les rôles financiers, la sienne sinon.
+ */
+export async function fetchStatutaire() {
+  const s = await request<ApiStatutaire>("/espace/cotisations/statutaire")
+  return {
+    mensualite: s.mensualite,
+    exercices: s.exercices.map((e) => ({
+      annee: e.annee,
+      cartes: e.cartes.map((c) => ({
+        membreId: c.membreId,
+        nom: c.nom,
+        payes: c.mois.map((m) => m === "PAYE" || m === "PAYE_EN_RETARD"),
+      })),
+    })),
+  }
+}
+
+/** Événements de la chorale ; les dépenses sont rattachées ensuite (fetchDepenses). */
+export async function fetchEvenements(): Promise<Evenement[]> {
+  return (await request<ApiEvenement[]>("/espace/evenements")).map((e) => ({
+    id: e.id,
+    titre: e.titre,
+    type: capitalize(e.type),
+    date: e.date ?? "",
+    description: "",
+    budgetPrevisionnel: e.budgetPrevisionnel,
+    cotisationMontant: e.montantCotisation,
+    inscrits: [],
+    depenses: [],
+    contributions: Object.fromEntries(e.versements.map((v) => [v.membreId, v.montant])),
+  }))
+}
+
+/** Dépenses (bureau, trésorerie, secrétariat, admin). */
+export function fetchDepenses() {
+  return request<ApiDepense[]>("/espace/depenses")
+}
+
+/** Paiements non annulés, sous forme de reçus : tous pour les rôles financiers, les siens sinon. */
+export async function fetchRecus(): Promise<Recu[]> {
+  return (await request<ApiPaiement[]>("/espace/paiements"))
+    .filter((p) => !p.annulation)
+    .map((p) => ({
+      id: p.recu,
+      chorishId: p.membre.id,
+      type: p.evenementId == null ? "Statutaire" : "Événementielle",
+      label: p.libelle,
+      montant: p.montant,
+      // Jour du paiement ("AAAA-MM-JJ" → "JJ/MM/AAAA", sans décalage de fuseau), sinon jour de saisie.
+      date: p.datePaiement ? p.datePaiement.split("-").reverse().join("/") : frDate(p.date),
+      enregistrePar: p.auteur,
+      eventId: p.evenementId ?? undefined,
+      mode: p.mode ?? undefined,
+    }))
+}
+
+/** Jour et mode du paiement, envoyés avec chaque encaissement. */
+export interface DetailsPaiement {
+  /** "AAAA-MM-JJ", jamais dans le futur. */
+  datePaiement: string
+  /** Code d'un mode de règlement de la chorale. */
+  mode: ModeReglement
+}
+
+export async function fetchChants(): Promise<Chant[]> {
+  return (await request<ApiChant[]>("/espace/chants")).map((c) => ({ ...c, statut: "actif" }))
+}
+
+/** Cotisation statutaire d'un mois (0 = janvier). Refusée si le mois est déjà payé. */
+export function payerStatutaire(membreId: number, mois: number, annee: number, montant: number, details: DetailsPaiement) {
+  return request<ApiPaiement>("/espace/paiements", {
+    method: "POST",
+    body: JSON.stringify({ membreId, montant, type: "STATUTAIRE", mois, annee, ...details }),
+  })
+}
+
+export function payerEvenement(membreId: number, evenementId: number, montant: number, details: DetailsPaiement) {
+  return request<ApiPaiement>("/espace/paiements", {
+    method: "POST",
+    body: JSON.stringify({ membreId, montant, type: "EVENEMENTIELLE", evenementId, ...details }),
+  })
+}
+
+export function creerEvenement(form: { titre: string; type: string; date: string; budgetPrevisionnel: number; montantCotisation: number }) {
+  return request<ApiEvenement>("/espace/evenements", {
+    method: "POST",
+    body: JSON.stringify({ ...form, date: form.date || null }),
+  })
+}
+
+/** Code d'un mode de règlement de la chorale ("ESPECES", "ORANGE_MONEY"…), voir fetchParametres. */
+export type ModeReglement = string
+
+export function creerDepense(form: {
+  evenementId: number
+  libelle: string
+  montant: number
+  categorie: string
+  beneficiaire: string
+  mode: ModeReglement
+}) {
+  return request<ApiDepense>("/espace/depenses", { method: "POST", body: JSON.stringify({ ...form, date: todayISO() }) })
+}
+
+/** Refusé par l'API pour une dépense que l'on a saisie soi-même. */
+export function validerDepense(id: number) {
+  return request<ApiDepense>(`/espace/depenses/${id}/valider`, { method: "POST" })
+}
+
+export function creerChant(form: Omit<ApiChant, "id">) {
+  return request<ApiChant>("/espace/chants", { method: "POST", body: JSON.stringify(form) })
+}
+
+export function supprimerChant(id: number) {
+  return request<void>(`/espace/chants/${id}`, { method: "DELETE" })
+}
+
+/* ------------------------------ Paramètres de la chorale ------------------------------ */
+// Gérés dans les Paramètres du portail web (bureau, secrétaire ; commission musicale pour les
+// catégories de chant). Le mobile les lit pour proposer les mêmes listes que le web.
+
+export interface Parametres {
+  /** Cotisation statutaire mensuelle (F CFA). */
+  mensualite: number
+  /** En minuscules ("concert") : afficher avec une majuscule initiale. */
+  typesEvenement: string[]
+  categoriesDepense: string[]
+  categoriesChant: string[]
+  /** Tonalités proposées à l'ajout d'un chant (« Sol majeur »…). */
+  tonalitesChant: string[]
+  modesReglement: { code: ModeReglement; label: string }[]
+}
+
+export function fetchParametres() {
+  return request<Parametres>("/espace/parametres")
 }

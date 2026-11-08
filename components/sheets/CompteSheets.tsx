@@ -308,7 +308,7 @@ export function CompteDetailSheet({ compteId }: { compteId: number }) {
                 <Text className="shrink font-sans-bold text-[13px] text-ink">{ROLE_LABEL[h.role]}</Text>
                 {h.fin ? null : <Pill variant="green">En cours</Pill>}
               </RowBetween>
-              <Text className="mt-0.5 font-mono text-[11.5px] tabular-nums text-ink-soft">
+              <Text className="mt-0.5 font-sans text-[11.5px] tabular-nums text-ink-soft">
                 du {dateCourte(h.debut)}
                 {h.fin ? ` au ${dateCourte(h.fin)}` : ""}
               </Text>

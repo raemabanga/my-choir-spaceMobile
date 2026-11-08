@@ -1,4 +1,25 @@
 declare const palette: Readonly<Record<string, string>> & {
+  readonly "luna-50": string
+  readonly "luna-100": string
+  readonly "luna-300": string
+  readonly "luna-500": string
+  readonly "luna-700": string
+  readonly "luna-900": string
+  readonly "n-0": string
+  readonly "n-25": string
+  readonly "n-50": string
+  readonly "n-100": string
+  readonly "n-200": string
+  readonly "n-300": string
+  readonly "n-400": string
+  readonly "n-500": string
+  readonly "n-700": string
+  readonly "n-900": string
+  readonly primary: string
+  readonly "primary-hover": string
+  readonly "primary-soft": string
+  readonly secondary: string
+  readonly "secondary-soft": string
   readonly navy: string
   readonly "navy-strong": string
   readonly slate: string
@@ -22,13 +43,18 @@ declare const palette: Readonly<Record<string, string>> & {
   readonly "warning-bg": string
   readonly danger: string
   readonly "danger-bg": string
+  readonly "danger-line": string
+  readonly info: string
+  readonly "info-bg": string
   readonly "paper-translucent": string
   readonly overlay: string
   readonly handle: string
   readonly "rule-start": string
   readonly "rule-end": string
   readonly "gold-35": string
+  readonly "focus-ring": string
   readonly "on-navy-muted": string
   readonly "on-navy-track": string
+  readonly "on-navy-fill": string
 }
 export = palette

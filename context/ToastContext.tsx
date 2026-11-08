@@ -35,15 +35,16 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={{ toast }}>
       {children}
-      {/* Toast (.toast) : pilule navy, texte or pâle, au-dessus de la barre de navigation.
+      {/* Toast : carte blanche, bordure fine, ombre md, au-dessus de la barre de navigation.
+          Sans icône : le même toast sert aux confirmations et aux erreurs.
           Position et animation en style (Animated), apparence en classes. */}
       <Animated.View
         pointerEvents="none"
         accessibilityLiveRegion="polite"
-        style={{ position: "absolute", left: 20, right: 20, bottom: 104, alignItems: "center", zIndex: 80, opacity, transform: [{ translateY }] }}
+        style={{ position: "absolute", left: 16, right: 16, bottom: 104, alignItems: "center", zIndex: 80, opacity, transform: [{ translateY }] }}
       >
-        <View className="rounded-full bg-navy px-[18px] py-2.5" style={shadows.toast}>
-          <Text className="text-center font-sans-semibold text-[12.5px] text-gold-soft">{message}</Text>
+        <View className="max-w-[420px] rounded-row border border-line bg-paper px-4 py-3" style={shadows.toast}>
+          <Text className="text-center font-sans-medium text-[13.5px] text-ink">{message}</Text>
         </View>
       </Animated.View>
     </ToastContext.Provider>

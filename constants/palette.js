@@ -1,66 +1,112 @@
-// Source unique des couleurs (prototype cantoria-app-mobile-v2.html / portail web).
+// Source unique des couleurs — design system My Choir Space (palette LUNA), identique au
+// portail web et au back-office.
 // Lue par tailwind.config.js (classes NativeWind : bg-navy, text-ink-light, border-line…)
 // et par constants/theme.ts (props de couleur des composants tiers : icônes, dégradés, Picker).
 // Aucune couleur ne doit être écrite en dur ailleurs : ajoutez une entrée ici.
+//
+// Deux couleurs de marque seulement : bleu marine (principale) et turquoise (secondaire,
+// petites touches). Tout le reste est en gris froids ; les statuts restent en teintes douces.
+
+// ---- Palette LUNA ----
+const luna = {
+  "luna-50": "#ecf7f9",
+  "luna-100": "#a7ebf2",
+  "luna-300": "#54acbf",
+  "luna-500": "#26658c",
+  "luna-700": "#023859",
+  "luna-900": "#011c40",
+}
+
+// ---- Neutres froids ----
+const neutral = {
+  "n-0": "#ffffff",
+  "n-25": "#f7f9fb",
+  "n-50": "#f0f3f6",
+  "n-100": "#e4e9ef",
+  "n-200": "#cdd5df",
+  "n-300": "#aab6c3",
+  "n-400": "#8391a3",
+  "n-500": "#5f6e82",
+  "n-700": "#3a4859",
+  "n-900": "#0f1b2d",
+}
 
 module.exports = {
-  // Bleu nuit
-  navy: "#111827",
-  "navy-strong": "#0b1220",
-  slate: "#1f2937",
+  ...luna,
+  ...neutral,
+
+  // Marque
+  primary: luna["luna-700"],
+  "primary-hover": luna["luna-900"],
+  "primary-soft": "#e8edf3",
+  secondary: luna["luna-300"],
+  "secondary-soft": luna["luna-50"],
+
+  // Bleu marine (noms historiques)
+  navy: luna["luna-700"],
+  "navy-strong": luna["luna-900"],
+  slate: neutral["n-700"],
   // Texte
-  ink: "#111827",
-  "ink-soft": "#4b5563",
-  "ink-light": "#6b7280",
-  // Or
-  gold: "#d9b55d",
-  "gold-strong": "#bf8d2f",
-  "gold-soft": "#f5e7bb",
-  "gold-soft-strong": "#f9f0d1",
-  /** Texte sur fond or pâle (badges or, mois payés). */
-  "gold-ink": "#7a5a14",
+  ink: neutral["n-900"],
+  "ink-soft": neutral["n-700"],
+  "ink-light": neutral["n-500"],
+  // Accent : historiquement « or », désormais turquoise (couleur secondaire)
+  gold: luna["luna-300"],
+  "gold-strong": "#3b7886",
+  "gold-soft": "#ebf5f7",
+  "gold-soft-strong": "#d4eaef",
+  /** Texte sur fond turquoise pâle (pastilles d'accent). */
+  "gold-ink": "#2c5f6b",
   // Fonds
-  surface: "#f5f7fb",
-  "surface-soft": "#eef3f8",
-  paper: "#ffffff",
+  surface: neutral["n-25"],
+  "surface-soft": neutral["n-50"],
+  paper: neutral["n-0"],
   // Bordures
-  line: "rgba(17,24,39,0.08)",
-  "line-strong": "rgba(17,24,39,0.14)",
+  line: neutral["n-100"],
+  "line-strong": neutral["n-200"],
   /** Séparateur entre lignes de liste. */
-  "line-soft": "rgba(17,24,39,0.07)",
-  // États
-  success: "#1f8a5b",
-  "success-bg": "#e9f9f0",
-  warning: "#b7791f",
-  "warning-bg": "#fff4d8",
-  danger: "#c94a4a",
-  "danger-bg": "#fbeaea",
+  "line-soft": "#edf1f5",
+  // États (atténués ; toujours en pastille douce, jamais en grand aplat)
+  success: "#2f8f6b",
+  "success-bg": "#e5f3ec",
+  warning: "#a8691a",
+  "warning-bg": "#fbf0df",
+  danger: "#c2413b",
+  "danger-bg": "#fbe9e7",
+  /** Bordure rouge douce (mois impayé). */
+  "danger-line": "#efc6c3",
+  info: luna["luna-500"],
+  "info-bg": "#e6eef5",
   // Teintes translucides
   /** Barre de navigation basse. */
-  "paper-translucent": "rgba(255,255,255,0.88)",
+  "paper-translucent": "rgba(255,255,255,0.96)",
   /** Voile derrière les bottom sheets. */
-  overlay: "rgba(17,24,39,0.45)",
+  overlay: "rgba(1,28,64,0.45)",
   /** Poignée des bottom sheets. */
-  handle: "rgba(17,24,39,0.2)",
+  handle: "rgba(1,28,64,0.18)",
   /** Filet dégradé des titres de section (début → fin). */
-  "rule-start": "rgba(17,24,39,0.25)",
-  "rule-end": "rgba(17,24,39,0)",
-  /** Bordure des boutons secondaires (or à 35 %). */
-  "gold-35": "rgba(191,141,47,0.35)",
-  /** Carte sombre : texte secondaire et piste de progression. */
-  "on-navy-muted": "rgba(245,247,251,0.65)",
+  "rule-start": "rgba(205,213,223,1)",
+  "rule-end": "rgba(205,213,223,0)",
+  /** Bordure des éléments d'accent (turquoise à 35 %). */
+  "gold-35": "rgba(84,172,191,0.35)",
+  /** Focus des champs (turquoise à 45 %). */
+  "focus-ring": "rgba(84,172,191,0.45)",
+  /** Bloc marine : texte secondaire, piste de progression, remplissages blancs translucides. */
+  "on-navy-muted": "rgba(255,255,255,0.72)",
   "on-navy-track": "rgba(255,255,255,0.16)",
-  // Avatars à initiales (fond / texte), attribués en rotation selon l'identifiant
-  "avatar-1-bg": "#ecfdf5",
-  "avatar-1-fg": "#047857",
-  "avatar-2-bg": "#f0f9ff",
-  "avatar-2-fg": "#0369a1",
-  "avatar-3-bg": "#f5f3ff",
-  "avatar-3-fg": "#6d28d9",
-  "avatar-4-bg": "#fffbeb",
-  "avatar-4-fg": "#b45309",
-  "avatar-5-bg": "#fff1f2",
-  "avatar-5-fg": "#be123c",
-  "avatar-6-bg": "#eef2ff",
-  "avatar-6-fg": "#4338ca",
+  "on-navy-fill": "rgba(255,255,255,0.10)",
+  // Avatars : teinte turquoise unique (l'app ne doit pas être très colorée).
+  // Six entrées conservées pour l'API avatarClasses(id).
+  "avatar-1-bg": "#ebf5f7",
+  "avatar-1-fg": "#2c5f6b",
+  "avatar-2-bg": "#ebf5f7",
+  "avatar-2-fg": "#2c5f6b",
+  "avatar-3-bg": "#ebf5f7",
+  "avatar-3-fg": "#2c5f6b",
+  "avatar-4-bg": "#ebf5f7",
+  "avatar-4-fg": "#2c5f6b",
+  "avatar-5-bg": "#ebf5f7",
+  "avatar-5-fg": "#2c5f6b",
+  "avatar-6-bg": "#ebf5f7",
+  "avatar-6-fg": "#2c5f6b",
 }

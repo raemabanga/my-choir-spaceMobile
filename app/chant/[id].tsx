@@ -1,7 +1,7 @@
 // Page « Détail du chant » (plein écran) : titre, audio, partition, paroles, puis l'auteur en bas.
 
 import { router, useLocalSearchParams } from "expo-router"
-import { FileText, Pencil, Play } from "lucide-react-native"
+import { FileText, Music, Pencil, Play } from "lucide-react-native"
 import { ScrollView, Text, View } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { BackHeader } from "../../components/AppHeader"
@@ -9,21 +9,24 @@ import { Container } from "../../components/layout"
 import { ChantFormSheet } from "../../components/sheets/ChantSheets"
 import { Button, Card, EmptyState, Pill, ProgressBar, RowBetween, SectionHeader } from "../../components/ui"
 import { colors } from "../../constants/theme"
-import { useApp } from "../../context/AppContext"
+import { errorMessage, useApp } from "../../context/AppContext"
 import { useSheet } from "../../context/SheetContext"
 import { useToast } from "../../context/ToastContext"
 
 export default function ChantScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
-  const { chants, can, proposeDeleteSong, validateDeleteSong } = useApp()
+  const { chants, can, isDemo, proposeDeleteSong, deleteSong } = useApp()
   const { openSheet } = useSheet()
   const { toast } = useToast()
   const chant = chants.find((c) => c.id === Number(id))
 
-  const canEdit = can("chantsCreer")
+  // L'API ne permet pas encore de modifier un chant, ni de proposer sa suppression :
+  // ces actions restent réservées à la démonstration.
+  const canEdit = isDemo && can("chantsCreer")
   // Comme sur le web, seul le bureau supprime ; qui peut ajouter sans supprimer (commission musicale) propose.
-  const canPropose = chant !== undefined && can("chantsCreer") && !can("chantsGerer") && chant.statut !== "a_valider"
-  const canValidate = chant !== undefined && can("chantsGerer") && chant.statut === "a_valider"
+  const canPropose = isDemo && chant !== undefined && can("chantsCreer") && !can("chantsGerer") && chant.statut !== "a_valider"
+  // Démonstration : le bureau valide une suppression proposée. API : le bureau supprime directement.
+  const canDelete = chant !== undefined && can("chantsGerer") && (!isDemo || chant.statut === "a_valider")
 
   return (
     <SafeAreaView className="flex-1 bg-paper" edges={["top"]}>
@@ -39,7 +42,7 @@ export default function ChantScreen() {
       <ScrollView className="flex-1 bg-surface" contentContainerClassName="grow pb-10 pt-5">
         <Container className="flex-1">
           {!chant ? (
-            <EmptyState icon="🎼" title="Chant introuvable" subtitle="Il a peut-être été retiré du répertoire." />
+            <EmptyState icon={Music} title="Chant introuvable" subtitle="Il a peut-être été retiré du répertoire." />
           ) : (
             <>
               <Text accessibilityRole="header" className="font-sans-semibold text-[26px] leading-[32px] tracking-[-0.3px] text-navy">
@@ -59,7 +62,7 @@ export default function ChantScreen() {
                     </View>
                     <Text className="font-sans-bold text-[14px] text-ink">Écouter l'audio</Text>
                   </View>
-                  <Text className="font-mono text-[12.5px] tabular-nums text-ink-light">02:41</Text>
+                  <Text className="font-sans text-[12.5px] tabular-nums text-ink-light">02:41</Text>
                 </RowBetween>
                 <ProgressBar percent={30} />
               </Card>
@@ -78,16 +81,19 @@ export default function ChantScreen() {
                   }}
                 />
               ) : null}
-              {canValidate ? (
+              {canDelete ? (
                 <Button
-                  title="Valider la suppression"
+                  title={isDemo ? "Valider la suppression" : "Supprimer le chant"}
                   variant="danger"
                   block
                   className="mt-2"
                   onPress={() => {
-                    validateDeleteSong(chant.id)
-                    router.back()
-                    toast("Chant supprimé du répertoire")
+                    deleteSong(chant.id)
+                      .then(() => {
+                        router.back()
+                        toast("Chant supprimé du répertoire")
+                      })
+                      .catch((e) => toast(errorMessage(e)))
                   }}
                 />
               ) : null}

@@ -4,12 +4,22 @@ export function fmt(n: number) {
   return n.toLocaleString("fr-FR") + " FCFA"
 }
 
+/** Événement sans date (possible avec l'API). */
+const NO_DATE = "Date à préciser"
+
 export function formatDateLong(iso: string) {
+  if (!iso) return NO_DATE
   return new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })
 }
 
 export function formatDateShort(iso: string) {
+  if (!iso) return NO_DATE
   return new Date(iso).toLocaleDateString("fr-FR")
+}
+
+/** Année en cours : exercice de la cotisation statutaire (janvier → décembre). */
+export function currentYear() {
+  return new Date().getFullYear()
 }
 
 export function todayISO() {
@@ -46,9 +56,9 @@ export function eventBilan(ev: Evenement) {
   return { recettes, validees, enAttente, solde: recettes - validees, attendu }
 }
 
-/** Prochain événement à venir, sinon le plus récent. */
-export function nextEvent(events: Evenement[]) {
+/** Prochain événement daté à venir, sinon le plus récent. */
+export function nextEvent(events: Evenement[]): Evenement | undefined {
   const today = todayISO()
-  const sorted = [...events].sort((a, b) => a.date.localeCompare(b.date))
+  const sorted = events.filter((e) => e.date).sort((a, b) => a.date.localeCompare(b.date))
   return sorted.find((e) => e.date >= today) ?? sorted[sorted.length - 1]
 }

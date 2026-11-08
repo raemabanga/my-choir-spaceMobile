@@ -37,6 +37,17 @@ export const colors = {
   gold35: palette["gold-35"],
   onNavyMuted: palette["on-navy-muted"],
   onNavyTrack: palette["on-navy-track"],
+  onNavyFill: palette["on-navy-fill"],
+  info: palette.info,
+  infoBg: palette["info-bg"],
+  focusRing: palette["focus-ring"],
+  primary: palette.primary,
+  primarySoft: palette["primary-soft"],
+  luna100: palette["luna-100"],
+  luna500: palette["luna-500"],
+  luna700: palette["luna-700"],
+  luna900: palette["luna-900"],
+  n400: palette["n-400"],
 } as const
 
 /** Classes NativeWind des avatars (fond / texte), attribuées en rotation selon l'identifiant. */
@@ -65,16 +76,22 @@ export const fonts = {
   monoSemibold: "GeistMono_600SemiBold",
 } as const
 
-/** Ombres teintées navy (non exprimables en classes NativeWind sur iOS/Android) : à passer en `style`. */
+/**
+ * Ombres teintées navy, discrètes (les bordures font l'essentiel de la séparation).
+ * Non exprimables en classes NativeWind sur iOS/Android : à passer en `style`.
+ * xs → cartes · md → toasts, carte d'accueil · lg → bottom sheets, dialogues.
+ */
 export const shadows = {
-  /** Cartes : 0 1px 2px rgba(17,24,39,.04). */
-  card: { shadowColor: palette.navy, shadowOpacity: 0.04, shadowRadius: 2, shadowOffset: { width: 0, height: 1 }, elevation: 1 },
-  /** Pastille de marque (connexion). */
-  mark: { shadowColor: palette.navy, shadowOpacity: 0.25, shadowRadius: 20, shadowOffset: { width: 0, height: 8 }, elevation: 6 },
-  /** Toast. */
-  toast: { shadowColor: palette.navy, shadowOpacity: 0.3, shadowRadius: 20, shadowOffset: { width: 0, height: 8 }, elevation: 8 },
-  /** Bottom sheet. */
-  sheet: { shadowColor: palette.navy, shadowOpacity: 0.25, shadowRadius: 30, shadowOffset: { width: 0, height: -10 }, elevation: 20 },
+  /** xs — cartes. */
+  card: { shadowColor: palette["luna-900"], shadowOpacity: 0.05, shadowRadius: 2, shadowOffset: { width: 0, height: 1 }, elevation: 1 },
+  /** md — carte mise en avant de l'accueil (« Reste à payer »). */
+  hero: { shadowColor: palette["luna-900"], shadowOpacity: 0.08, shadowRadius: 16, shadowOffset: { width: 0, height: 6 }, elevation: 4 },
+  /** md — pastille de marque (connexion). */
+  mark: { shadowColor: palette["luna-900"], shadowOpacity: 0.12, shadowRadius: 16, shadowOffset: { width: 0, height: 6 }, elevation: 4 },
+  /** md — toast. */
+  toast: { shadowColor: palette["luna-900"], shadowOpacity: 0.1, shadowRadius: 16, shadowOffset: { width: 0, height: 6 }, elevation: 6 },
+  /** lg — bottom sheet. */
+  sheet: { shadowColor: palette["luna-900"], shadowOpacity: 0.16, shadowRadius: 24, shadowOffset: { width: 0, height: -8 }, elevation: 16 },
 } as const
 
 /** Taille minimale d'une cible tactile (classe : min-h-touch). */

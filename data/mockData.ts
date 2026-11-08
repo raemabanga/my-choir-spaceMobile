@@ -6,7 +6,8 @@ export const MONTHS = [
 ]
 
 export const MENSUALITE = 1000
-export const ANNEE = 2026
+/** Données de démonstration datées de l'année en cours (l'app utilise currentYear() de lib/format). */
+const Y = new Date().getFullYear()
 
 /** Libellés des rôles : mêmes que le web (lib/roles.ts). */
 export { ROLE_LABEL as roleLabels } from "../lib/roles"
@@ -49,21 +50,21 @@ export const initialStatutaire: Record<number, boolean[]> = {
 
 export const initialEvents: Evenement[] = [
   {
-    id: 1, titre: "Concert de Noël", type: "Concert", date: "2026-12-20",
+    id: 1, titre: "Concert de Noël", type: "Concert", date: `${Y}-12-20`,
     description: "Concert annuel de fin d'année à la paroisse Sainte-Cécile.",
     budgetPrevisionnel: 150000, cotisationMontant: 2000,
     inscrits: [1, 3, 4], depenses: [{ label: "Location sono", montant: 40000, valide: true }],
     contributions: { 1: 2000, 2: 0, 3: 2000, 4: 1000, 5: 0 },
   },
   {
-    id: 2, titre: "Mariage — Famille Nkeng", type: "Mariage", date: "2026-09-05",
+    id: 2, titre: "Mariage — Famille Nkeng", type: "Mariage", date: `${Y}-09-05`,
     description: "Cotisation événementielle de soutien pour le mariage d'un membre du bureau.",
     budgetPrevisionnel: 0, cotisationMontant: 3000,
     inscrits: [1, 2, 3, 5], depenses: [],
     contributions: { 1: 3000, 2: 0, 3: 3000, 4: 0, 5: 1500 },
   },
   {
-    id: 3, titre: "Sortie annuelle", type: "Sortie", date: "2026-10-12",
+    id: 3, titre: "Sortie annuelle", type: "Sortie", date: `${Y}-10-12`,
     description: "Sortie détente au bord du lac, ouverte à tous les choristes.",
     budgetPrevisionnel: 80000, cotisationMontant: 5000,
     inscrits: [1, 4], depenses: [{ label: "Transport bus", montant: 25000, valide: false }],
@@ -91,6 +92,6 @@ export const initialChants: Chant[] = [
 ]
 
 export const initialRecus: Recu[] = [
-  { id: "REC-2026-0114", chorishId: 1, type: "Statutaire", label: "Cotisation — Mai 2026", montant: 1000, date: "03/05/2026", enregistrePar: "Aline Mbeki (Commission recette)" },
-  { id: "REC-2026-0098", chorishId: 1, type: "Événementielle", label: "Concert de Noël", montant: 2000, date: "22/04/2026", enregistrePar: "Rachel Fotso (Trésorière)" },
+  { id: `REC-${Y}-0114`, chorishId: 1, type: "Statutaire", label: `Cotisation — Mai ${Y}`, montant: 1000, date: `03/05/${Y}`, enregistrePar: "Aline Mbeki (Commission recette)" },
+  { id: `REC-${Y}-0098`, chorishId: 1, type: "Événementielle", label: "Concert de Noël", montant: 2000, date: `22/04/${Y}`, enregistrePar: "Rachel Fotso (Trésorière)" },
 ]

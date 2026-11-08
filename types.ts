@@ -55,6 +55,8 @@ export interface Chant {
 }
 
 export interface Depense {
+  /** Identifiant côté API (absent en démonstration). */
+  id?: number
   label: string
   montant: number
   valide: boolean
@@ -64,6 +66,7 @@ export interface Evenement {
   id: number
   titre: string
   type: string
+  /** "AAAA-MM-JJ", ou "" si la date n'est pas encore fixée. */
   date: string
   description: string
   budgetPrevisionnel: number
@@ -83,4 +86,8 @@ export interface Recu {
   montant: number
   date: string
   enregistrePar: string
+  /** Événement concerné (cotisation événementielle). */
+  eventId?: number
+  /** Code du mode de règlement (absent pour les paiements anciens). */
+  mode?: string
 }

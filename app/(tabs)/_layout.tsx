@@ -6,12 +6,12 @@ import { cx } from "../../components/ui"
 import { colors } from "../../constants/theme"
 import { useApp } from "../../context/AppContext"
 
-// Barre de navigation basse (.navbar) : fond blanc translucide, onglet actif navy avec point or.
+// Barre de navigation basse : fond blanc, onglet actif marine (trait 2) avec point turquoise.
 function TabItem({ icon: Icon, label, focused }: { icon: LucideIcon; label: string; focused: boolean }) {
   return (
     <View className="w-[72px] items-center gap-[3px]">
-      <Icon size={22} color={focused ? colors.navy : colors.inkLight} strokeWidth={1.7} />
-      <Text numberOfLines={1} allowFontScaling={false} className={cx("font-sans-semibold text-[10px] tracking-[0.2px]", focused ? "text-navy" : "text-ink-light")}>
+      <Icon size={22} color={focused ? colors.navy : colors.n400} strokeWidth={focused ? 2 : 1.75} />
+      <Text numberOfLines={1} allowFontScaling={false} className={cx("text-[11px]", focused ? "font-sans-semibold text-navy" : "font-sans-medium text-ink-light")}>
         {label}
       </Text>
       <View className={cx("-mt-px h-1 w-1 rounded-full", focused ? "bg-gold" : "bg-transparent")} />

@@ -1,5 +1,5 @@
 /** @type {import('tailwindcss').Config} */
-// Design system NativeWind, aligné sur le prototype cantoria-app-mobile-v2.html.
+// Design system NativeWind — My Choir Space (palette LUNA), identique au portail web et au back-office.
 // Couleurs : constants/palette.js (source unique, partagée avec constants/theme.ts).
 const palette = require("./constants/palette")
 
@@ -18,7 +18,7 @@ module.exports = {
   theme: {
     extend: {
       colors: palette,
-      // Geist pour l'interface ; Geist Mono pour libellés techniques, numéros, montants et dates.
+      // Geist pour l'interface et les montants (chiffres tabulaires) ; Geist Mono pour les numéros de reçu et les codes.
       fontFamily: {
         sans: ["Geist_400Regular"],
         "sans-medium": ["Geist_500Medium"],
@@ -28,11 +28,13 @@ module.exports = {
         "mono-medium": ["GeistMono_500Medium"],
         "mono-semibold": ["GeistMono_600SemiBold"],
       },
+      // Rayons : 8 contrôles · 12 tuiles · 16 cartes mobiles · 24 feuilles.
       borderRadius: {
         card: "16px",
-        field: "10px",
-        row: "14px",
-        sheet: "26px",
+        tile: "12px",
+        field: "8px",
+        row: "12px",
+        sheet: "24px",
       },
       // Cible tactile minimale.
       minHeight: { touch: "44px" },
