@@ -69,6 +69,20 @@ export function upcomingEvents(events: Evenement[], n: number): Evenement[] {
     .slice(0, n)
 }
 
+/**
+ * Liste des événements en deux parts : à venir (aujourd'hui compris, du plus proche au plus
+ * lointain ; les non datés à la fin) puis passés (du plus récent au plus ancien).
+ */
+export function splitEvents(events: Evenement[]): { aVenir: Evenement[]; passes: Evenement[] } {
+  const today = todayISO()
+  const jour = (e: Evenement) => e.date.slice(0, 10)
+  const aVenir = events
+    .filter((e) => !e.date || jour(e) >= today)
+    .sort((a, b) => (!a.date ? 1 : !b.date ? -1 : jour(a).localeCompare(jour(b))))
+  const passes = events.filter((e) => e.date && jour(e) < today).sort((a, b) => jour(b).localeCompare(jour(a)))
+  return { aVenir, passes }
+}
+
 export function nextEvent(events: Evenement[]): Evenement | undefined {
   const today = todayISO()
   const sorted = events.filter((e) => e.date).sort((a, b) => a.date.localeCompare(b.date))

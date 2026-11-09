@@ -11,6 +11,7 @@ import { Screen, useResponsive } from "../../components/layout"
 import { ChantFormSheet } from "../../components/sheets/ChantSheets"
 import { QuickPaymentSheet } from "../../components/sheets/CotisationSheets"
 import { EventDetailSheet } from "../../components/sheets/EventSheets"
+import { NotificationButton } from "../../components/notifications/NotificationButton"
 import { ConnectionRing, OfflineLabel, SyncButton, useConnectionRing } from "../../components/sync"
 import {
   Button,
@@ -187,7 +188,12 @@ export default function HomeScreen() {
             </Text>
             <OfflineLabel status={connexion} className="mt-1" />
           </View>
-          <SyncButton light />
+          {/* Actions de l'en-tête : la cloche (la plus utilisée) au bord droit, sous le pouce ;
+              la synchro, secondaire (le geste « tirer pour actualiser » fait la même chose), à sa gauche. */}
+          <View className="flex-row items-center gap-2">
+            <SyncButton light />
+            <NotificationButton light />
+          </View>
         </View>
       </View>
       <View className="-mt-12 w-full self-center" style={{ maxWidth, paddingHorizontal: gutter }}>

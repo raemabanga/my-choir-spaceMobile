@@ -622,6 +622,36 @@ export function enregistrerPushToken(token: string, plateforme: "ios" | "android
   return request<void>("/espace/notifications/push-tokens", { method: "POST", body: JSON.stringify({ token, plateforme }) })
 }
 
+/** Notification du membre (même liste que la cloche du portail web). */
+export interface NotificationEspace {
+  id: number
+  type: string
+  titre: string
+  message: string
+  /** Page du portail concernée ("/cotisations", "/chants/12"…), traduite en écran par ecranDeNotification. */
+  lien: string | null
+  lue: boolean
+  createdAt: string
+}
+
+export interface NotificationsReponse {
+  /** Toutes les non lues (pas seulement celles de la liste). */
+  nonLues: number
+  notifications: NotificationEspace[]
+}
+
+export function fetchNotifications() {
+  return request<NotificationsReponse>("/espace/notifications")
+}
+
+export function marquerNotificationLue(id: number) {
+  return request<NotificationsReponse>(`/espace/notifications/${id}/lue`, { method: "POST" })
+}
+
+export function toutMarquerNotificationsLues() {
+  return request<NotificationsReponse>("/espace/notifications/lues", { method: "POST" })
+}
+
 /** Jeton de connexion enregistré (lu avant une déconnexion). */
 export const jetonEnregistre = () => tokenStore.get()
 

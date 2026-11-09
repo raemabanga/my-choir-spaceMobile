@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "7559789139",
+    "project_id": "harmonix-10a47",
+    "storage_bucket": "harmonix-10a47.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:7559789139:android:b91bf894a18375c62ca4a6",
+        "android_client_info": {
+          "package_name": "com.harmonix.chorale"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC5ggC7KkGX6cVuyC9KnO6jlPamPqXXg30"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

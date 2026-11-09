@@ -11,6 +11,7 @@ import * as Notifications from "expo-notifications"
 import { Platform } from "react-native"
 import * as api from "./api"
 import { getMeta, setMeta } from "./offline"
+import { autoriserNotifications } from "./rappels"
 
 const META_JETON = "push_token"
 
@@ -49,16 +50,8 @@ export async function inscrirePush() {
     return
   }
   try {
-    // Android 13+ : le canal doit exister avant de demander l'autorisation.
-    if (Platform.OS === "android") {
-      await Notifications.setNotificationChannelAsync("default", {
-        name: "Notifications de la chorale",
-        importance: Notifications.AndroidImportance.HIGH,
-      })
-    }
-    let { status } = await Notifications.getPermissionsAsync()
-    if (status !== "granted") status = (await Notifications.requestPermissionsAsync()).status
-    if (status !== "granted") return
+    // Canal Android et autorisation (partagés avec les rappels locaux).
+    if (!(await autoriserNotifications())) return
 
     const { data: jeton } = await Notifications.getExpoPushTokenAsync({ projectId: projectId() })
     await api.enregistrerPushToken(jeton, Platform.OS === "ios" ? "ios" : "android")

@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Harmonix",
+    "name": "com.harmonix.chorale",
     "slug": "my-choir-spaceMobile",
     "version": "1.0.0",
     "scheme": "harmonix",
@@ -11,11 +11,19 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.harmonix.chorale",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -54,6 +62,21 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {
+        "headers": {
+          "Cross-Origin-Embedder-Policy": "credentialless",
+          "Cross-Origin-Opener-Policy": "same-origin"
+        },
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "d6ef2a52-356d-439c-98f0-102898b9fe0c"
+      }
+    },
+    "owner": "raema"
   }
 }

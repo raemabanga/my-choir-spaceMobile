@@ -18,6 +18,7 @@ import {
   type EvenementData,
 } from "../lib/offline/entities"
 import { desinscrirePush, inscrirePush } from "../lib/push"
+import { annulerRappels, planifierRappels } from "../lib/rappels"
 import { computePerms, ROLE_LABEL, type Perms } from "../lib/roles"
 import { Chant, Chorist, Evenement, Permission, Recu, RoleHistoryEntry } from "../types"
 import { EMPTY_DATA, evenementARattachements, lireDonneesChorale, parId } from "./choraleData"
@@ -358,6 +359,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(() => {
     syncManager.suspend()
     closeSession()
+    // Les rappels du membre ne doivent pas sonner pour le suivant.
+    void annulerRappels()
     void (async () => {
       // Jeton lu puis effacé tout de suite ; la désinscription du push utilise cet ancien jeton
       // (une reconnexion pendant ce temps garde son propre jeton intact).
@@ -366,6 +369,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await desinscrirePush(jeton)
     })()
   }, [closeSession])
+
+  /* ------------------------------ Rappels locaux ------------------------------ */
+  // Veille des événements où l'on est inscrit, mensualités impayées : programmés sur le téléphone
+  // et recalculés quand les données changent (regroupé : une fois les changements terminés).
+  const moi = session?.membershipId ?? null
+  const mesCartes = moi !== null ? statutaire[moi] : undefined
+  useEffect(() => {
+    if (moi === null || !offlineReady || session?.doitChangerMotDePasse) return
+    const timer = setTimeout(() => {
+      void planifierRappels({ events: data.events, cartes: mesCartes ?? [], annee, mensualite: data.mensualite })
+    }, 1500)
+    return () => clearTimeout(timer)
+  }, [moi, offlineReady, session?.doitChangerMotDePasse, data.events, mesCartes, annee, data.mensualite])
 
   /* ------------------------------ Actions (écriture locale) ------------------------------ */
 
