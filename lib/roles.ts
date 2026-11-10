@@ -32,10 +32,10 @@ export function computePerms(roles: Role[]): Perms {
     paiementsAnnuler: has("bureau") || has("tresorier") || has("commission_recette"),
     budget: has("bureau") || has("tresorier"),
     depensesValider: has("bureau") || has("tresorier"),
-    chantsGerer: has("bureau"),
+    chantsGerer: has("bureau") || has("commission_musicale"),
     chantsCreer: has("bureau") || has("commission_musicale"),
     // Tout choriste consulte le répertoire ; le bureau et la commission musicale ajoutent des chants,
-    // seul le bureau les supprime.
+    // les modifient et les suppriment.
     chantsVoir: true,
     rapports: has("admin_chorale") || has("bureau") || has("tresorier") || has("secretaire"),
   }

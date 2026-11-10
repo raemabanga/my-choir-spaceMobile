@@ -8,7 +8,7 @@ import { SafeAreaView } from "react-native-safe-area-context"
 import { BackHeader } from "../../components/AppHeader"
 import { ChantAudio } from "../../components/ChantAudio"
 import { Container } from "../../components/layout"
-import { Button, Card, EmptyState, Muted, Pill, SectionHeader } from "../../components/ui"
+import { Button, Card, EmptyState, Pill, SectionHeader } from "../../components/ui"
 import { colors } from "../../constants/theme"
 import { errorMessage, useApp } from "../../context/AppContext"
 import { parId } from "../../context/choraleData"
@@ -24,7 +24,7 @@ export default function ChantScreen() {
   // parId : la page d'un chant créé hors ligne reste valable après son envoi au serveur.
   const chant = parId(chants, Number(id))
 
-  // Comme sur le web, seul le bureau supprime un chant (l'API ne permet pas encore de le modifier).
+  // Comme sur le web : le bureau et la commission musicale suppriment un chant.
   const canDelete = chant !== undefined && can("chantsGerer")
 
   // Numéro automatique (ordre d'ajout au répertoire) et favori (enregistré sur le téléphone).
@@ -33,6 +33,9 @@ export default function ChantScreen() {
   const cle = chant ? cleChant(chant) : null
   const favori = cle !== null && favoris.has(cle)
   const [ouverture, setOuverture] = useState(false)
+  // Suppression en deux temps : bouton, puis encadré de confirmation.
+  const [confirmSuppression, setConfirmSuppression] = useState(false)
+  const [suppression, setSuppression] = useState(false)
 
   /** Ouvre la partition avec une application du téléphone (téléchargée une fois, puis hors connexion). */
   async function ouvrirPartition() {
@@ -95,25 +98,54 @@ export default function ChantScreen() {
                   onPress={ouvrirPartition}
                 />
               ) : null}
-              {!chant.audio && !chant.document ? (
-                <Muted className="mb-2">Pas encore d'audio ni de partition : ils s'ajoutent depuis le portail web.</Muted>
-              ) : null}
 
               {canDelete ? (
-                <Button
-                  title="Supprimer le chant"
-                  variant="danger"
-                  block
-                  className="mt-2"
-                  onPress={() => {
-                    deleteSong(chant.id)
-                      .then(() => {
-                        router.back()
-                        toast("Chant supprimé du répertoire")
-                      })
-                      .catch((e) => toast(errorMessage(e)))
-                  }}
-                />
+                confirmSuppression ? (
+                  <Card className="mt-2 border-danger bg-danger-bg">
+                    <Text className="font-sans-medium text-[13px] text-danger">
+                      Supprimer définitivement « {chant.titre} » du répertoire ?
+                    </Text>
+                    <View className="mt-2.5 flex-row gap-2">
+                      <View className="flex-1">
+                        <Button
+                          title={suppression ? "Suppression…" : "Supprimer"}
+                          variant="danger"
+                          block
+                          disabled={suppression}
+                          onPress={() => {
+                            setSuppression(true)
+                            deleteSong(chant.id)
+                              .then(() => {
+                                router.back()
+                                toast("Chant supprimé du répertoire")
+                              })
+                              .catch((e) => {
+                                setSuppression(false)
+                                toast(errorMessage(e))
+                              })
+                          }}
+                        />
+                      </View>
+                      <View className="flex-1">
+                        <Button
+                          title="Annuler"
+                          variant="ghost"
+                          block
+                          disabled={suppression}
+                          onPress={() => setConfirmSuppression(false)}
+                        />
+                      </View>
+                    </View>
+                  </Card>
+                ) : (
+                  <Button
+                    title="Supprimer le chant"
+                    variant="danger"
+                    block
+                    className="mt-2"
+                    onPress={() => setConfirmSuppression(true)}
+                  />
+                )
               ) : null}
 
               <SectionHeader title="Paroles" />

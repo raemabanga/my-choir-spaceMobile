@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "com.harmonix.chorale",
+    "name": "harmonix",
     "slug": "my-choir-spaceMobile",
     "version": "1.0.0",
     "scheme": "harmonix",
@@ -58,7 +58,8 @@
         {
           "color": "#023859"
         }
-      ]
+      ],
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true

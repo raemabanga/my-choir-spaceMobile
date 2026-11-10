@@ -291,6 +291,11 @@ export async function modifierCompte(compteId: number, form: Pick<NouveauCompte,
   )
 }
 
+/** Refusée (409) si le membre a des paiements ou a saisi des opérations : le désactiver à la place. */
+export async function supprimerCompte(compteId: number) {
+  await request<void>(`/espace/comptes/${compteId}`, { method: "DELETE" })
+}
+
 export async function setCompteActif(compteId: number, actif: boolean) {
   return toCompte(
     await request<ApiCompte>(`/espace/comptes/${compteId}/status`, {

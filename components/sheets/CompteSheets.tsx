@@ -2,7 +2,7 @@
 // attribution de rôle et affichage du mot de passe temporaire.
 // Équivalent mobile des modales du web (components/portail/modals/*compte*, *role*, *mdp*).
 
-import { Ban, Check, Eye, EyeOff, KeyRound, Pencil, RotateCcw, ShieldPlus } from "lucide-react-native"
+import { Ban, Check, Eye, EyeOff, KeyRound, Pencil, RotateCcw, ShieldPlus, Trash2 } from "lucide-react-native"
 import React, { useState, useSyncExternalStore } from "react"
 import { Pressable, Text, View } from "react-native"
 import { colors } from "../../constants/theme"
@@ -17,6 +17,7 @@ import {
   reinitialiserMotDePasse,
   revoquerRole,
   setCompteActif,
+  supprimerCompte,
   type Compte,
 } from "../../lib/api"
 import { dataChanged } from "../../lib/offline"
@@ -60,6 +61,11 @@ export const comptesStore = {
   add(compte: Compte) {
     compteRepository.syncFromServer([{ serverId: compte.id, data: compte }])
   },
+  /** Retire un compte supprimé sur le serveur. */
+  remove(compteId: number) {
+    const record = compteRepository.getByServerId(compteId)
+    if (record) compteRepository.purgeLocal(record.localId)
+  },
   subscribe(listener: () => void) {
     listeners.add(listener)
     return () => {
@@ -94,6 +100,7 @@ export function useDroitsCompte() {
       peutChangerStatut: gerable && !estMoi,
       peutReinitialiser: full && gerable && !estMoi,
       peutGererRoles: full && !estAdminProtege,
+      peutSupprimer: full && !estMoi && !estAdminProtege,
     }
   }
 }
@@ -191,7 +198,7 @@ function Confirmation({
 
 /* ------------------------------------ Détail d'un compte ------------------------------------ */
 
-type Demande = { type: "revoquer"; role: Role } | { type: "statut" } | { type: "mdp" } | null
+type Demande = { type: "revoquer"; role: Role } | { type: "statut" } | { type: "mdp" } | { type: "supprimer" } | null
 
 export function CompteDetailSheet({ compteId }: { compteId: number }) {
   const { openSheet, closeSheet } = useSheet()
@@ -232,6 +239,15 @@ export function CompteDetailSheet({ compteId }: { compteId: number }) {
     executer(async () => {
       comptesStore.replace(await setCompteActif(compte.id, !actif))
       toast(actif ? "Compte désactivé" : "Compte réactivé")
+    })
+
+  const confirmerSuppression = () =>
+    executer(async () => {
+      const nom = compte.nom
+      await supprimerCompte(compte.id)
+      closeSheet()
+      comptesStore.remove(compte.id)
+      toast(`Compte supprimé — ${nom}`)
     })
 
   const confirmerMotDePasse = () =>
@@ -361,6 +377,18 @@ export function CompteDetailSheet({ compteId }: { compteId: number }) {
         />
       ) : null}
 
+      {demande?.type === "supprimer" ? (
+        <Confirmation
+          titre="Supprimer définitivement le compte ?"
+          texte="Le compte, ses rôles et ses inscriptions aux événements seront supprimés. Un membre qui a des paiements enregistrés ne peut pas être supprimé : désactivez plutôt son compte."
+          bouton="Supprimer"
+          variant="danger"
+          busy={busy}
+          onConfirmer={confirmerSuppression}
+          onAnnuler={() => setDemande(null)}
+        />
+      ) : null}
+
       <ErrorBanner message={erreur} />
 
       {aucuneAction && !d.estAdminProtege ? (
@@ -396,6 +424,16 @@ export function CompteDetailSheet({ compteId }: { compteId: number }) {
             block
             disabled={busy}
             onPress={() => demander({ type: "mdp" })}
+          />
+        ) : null}
+        {d.peutSupprimer ? (
+          <Button
+            title="Supprimer le compte"
+            icon={Trash2}
+            variant="danger"
+            block
+            disabled={busy}
+            onPress={() => demander({ type: "supprimer" })}
           />
         ) : null}
         <Button title="Fermer" variant="ghost" block disabled={busy} onPress={closeSheet} />
