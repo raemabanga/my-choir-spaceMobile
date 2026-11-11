@@ -28,6 +28,8 @@ export interface ChoraleData {
   chants: Chant[]
   recus: Recu[]
   statutaireParAnnee: Record<number, Record<number, boolean[]>>
+  /** Mois non dus (avant l'adhésion) : année → membre → 12 mois. */
+  nonDuParAnnee: Record<number, Record<number, boolean[]>>
   /** Membres connus (hors membre connecté), triés par nom. */
   membres: Chorist[]
   mensualite: number
@@ -40,6 +42,7 @@ export const EMPTY_DATA: ChoraleData = {
   chants: [],
   recus: [],
   statutaireParAnnee: {},
+  nonDuParAnnee: {},
   membres: [],
   mensualite: 0,
   parametres: null,
@@ -205,8 +208,10 @@ export function lireDonneesChorale(membreConnecte: number, annee: number): Chora
   /* ---------- Cartes de cotisation ---------- */
   const snapshot = singleton(statutaireRepository)
   const parAnnee: Record<number, Record<number, boolean[]>> = {}
+  const nonDuParAnnee: Record<number, Record<number, boolean[]>> = {}
   for (const e of snapshot?.exercices ?? []) {
     parAnnee[e.annee] = Object.fromEntries(e.cartes.map((c) => [c.membreId, [...c.payes]]))
+    nonDuParAnnee[e.annee] = Object.fromEntries(e.cartes.map((c) => [c.membreId, c.nonDus ? [...c.nonDus] : Array<boolean>(12).fill(false)]))
   }
   const carte = (an: number, membre: number) => {
     parAnnee[an] ??= {}
@@ -263,6 +268,7 @@ export function lireDonneesChorale(membreConnecte: number, annee: number): Chora
     chants,
     recus,
     statutaireParAnnee: parAnnee,
+    nonDuParAnnee,
     membres,
     mensualite: params?.mensualite ?? snapshot?.mensualite ?? 0,
     parametres,

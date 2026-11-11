@@ -5,27 +5,15 @@ import { Text, View } from "react-native"
 import { Screen } from "../../components/layout"
 import { ReceiptSheet } from "../../components/sheets/CotisationSheets"
 import { ClipboardCheck, Receipt } from "lucide-react-native"
-import { Avatar, Button, Card, CardTitle, Chevron, EmptyState, ListRow, Muted, Numeric, Pill, ProgressBar, RowBetween, SectionHeader, type PillVariant } from "../../components/ui"
+import { ResumeAssiduiteBloc, STATUT_PRESENCE } from "../../components/Assiduite"
+import { Avatar, Button, Card, CardTitle, Chevron, EmptyState, ListRow, Muted, Pill, SectionHeader } from "../../components/ui"
 import { colors } from "../../constants/theme"
 import { useApp } from "../../context/AppContext"
 import { useSheet } from "../../context/SheetContext"
 import { useOfflineCollection } from "../../hooks/offline"
-import { LIBELLE_TYPE_SEANCE, type CategorieAssiduite, type StatutPresence } from "../../lib/api"
+import { LIBELLE_TYPE_SEANCE } from "../../lib/api"
 import { fmt, formatDateShort } from "../../lib/format"
 import { mesPresencesRepository } from "../../lib/offline/entities"
-
-/** Pastille de la catégorie d'assiduité (seuils de l'API : 75 % et 40 %). */
-const CATEGORIE: Record<CategorieAssiduite, { label: string; variant: PillVariant }> = {
-  ASSIDU: { label: "Assidu", variant: "green" },
-  IRREGULIER: { label: "Irrégulier", variant: "pending" },
-  DECROCHEUR: { label: "Décrocheur", variant: "burg" },
-}
-
-const STATUT: Record<StatutPresence, { label: string; variant: PillVariant }> = {
-  PRESENT: { label: "Présent", variant: "green" },
-  EXCUSE: { label: "Excusé", variant: "pending" },
-  ABSENT: { label: "Absent", variant: "burg" },
-}
 
 export default function ProfilScreen() {
   const { currentUser, roleHistory, receiptsFor, logout, can } = useApp()
@@ -84,21 +72,14 @@ export default function ProfilScreen() {
       <Card>
         {assiduite && assiduite.attendues > 0 ? (
           <>
-            <RowBetween>
-              <Numeric className="font-sans-semibold text-[28px] tracking-[-0.5px]">{assiduite.taux != null ? `${assiduite.taux} %` : "—"}</Numeric>
-              {assiduite.categorie ? <Pill variant={CATEGORIE[assiduite.categorie].variant}>{CATEGORIE[assiduite.categorie].label}</Pill> : null}
-            </RowBetween>
-            <ProgressBar percent={assiduite.taux ?? 0} />
-            <Muted className="mt-1">
-              {`${assiduite.presents} présences · ${assiduite.excuses} excusées · ${assiduite.absents} absences sur ${assiduite.attendues} séances (12 derniers mois)`}
-            </Muted>
+            <ResumeAssiduiteBloc resume={assiduite} categorie={assiduite.categorie} suffixe=" (12 derniers mois)" />
             {assiduite.dernieres.slice(0, 3).map((s, i) => (
               <ListRow
                 key={s.seanceId}
                 last={i === Math.min(assiduite.dernieres.length, 3) - 1}
                 title={s.libelle}
                 subtitle={`${LIBELLE_TYPE_SEANCE[s.type] ?? "Séance"} · ${formatDateShort(s.date)}`}
-                right={<Pill variant={STATUT[s.statut].variant}>{STATUT[s.statut].label}</Pill>}
+                right={<Pill variant={STATUT_PRESENCE[s.statut].variant}>{STATUT_PRESENCE[s.statut].label}</Pill>}
               />
             ))}
           </>

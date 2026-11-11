@@ -684,24 +684,43 @@ export function FormRow2({ children }: { children: [React.ReactNode, React.React
  * Payé : vert doux, libellé « Payé ». Impayé : fond blanc, bordure rouge douce, libellé « Impayé ».
  * Tactile seulement si l'utilisateur peut enregistrer le paiement.
  */
-export function Seal({ month, paid, clickable, onPress }: { month: string; paid: boolean; clickable?: boolean; onPress?: () => void }) {
+export function Seal({
+  month,
+  paid,
+  nonDu,
+  clickable,
+  onPress,
+}: {
+  month: string
+  paid: boolean
+  /** Mois antérieur à l'adhésion du membre : rien n'est dû (case grise, non tactile). */
+  nonDu?: boolean
+  clickable?: boolean
+  onPress?: () => void
+}) {
+  const actif = clickable && !nonDu
   return (
     <PressableScale
       scale={0.96}
-      onPress={clickable ? onPress : undefined}
-      disabled={!clickable}
-      accessibilityRole={clickable ? "button" : undefined}
-      accessibilityLabel={`${month} : ${paid ? "payé" : clickable ? "impayé, toucher pour enregistrer le paiement" : "impayé"}`}
+      onPress={actif ? onPress : undefined}
+      disabled={!actif}
+      accessibilityRole={actif ? "button" : undefined}
+      accessibilityLabel={`${month} : ${
+        paid ? "payé" : nonDu ? "non dû, avant l'adhésion" : actif ? "impayé, toucher pour enregistrer le paiement" : "impayé"
+      }`}
       className={cx(
         "min-h-[52px] justify-center rounded-row border px-2.5 py-2",
-        paid ? "border-success-bg bg-success-bg" : "border-danger-line bg-paper"
+        paid ? "border-success-bg bg-success-bg" : nonDu ? "border-surface-soft bg-surface-soft" : "border-danger-line bg-paper"
       )}
     >
-      <Text numberOfLines={1} className="font-sans-semibold text-[13px] text-ink">
+      <Text numberOfLines={1} className={cx("font-sans-semibold text-[13px]", nonDu && !paid ? "text-ink-light" : "text-ink")}>
         {month}
       </Text>
-      <Text numberOfLines={1} className={cx("mt-0.5 font-sans-medium text-[11px]", paid ? "text-success" : "text-danger")}>
-        {paid ? "Payé" : "Impayé"}
+      <Text
+        numberOfLines={1}
+        className={cx("mt-0.5 font-sans-medium text-[11px]", paid ? "text-success" : nonDu ? "text-ink-light" : "text-danger")}
+      >
+        {paid ? "Payé" : nonDu ? "Non dû" : "Impayé"}
       </Text>
     </PressableScale>
   )

@@ -150,7 +150,7 @@ function CarteEvenement({ ev, onOuvrir, onInscription }: { ev: Evenement; onOuvr
 }
 
 export default function HomeScreen() {
-  const { currentUser, statutaire, events, chants, can, annee, mensualite, choraleNom, parametres, toggleInscription } = useApp()
+  const { currentUser, statutaire, nonDu, events, chants, can, annee, mensualite, choraleNom, parametres, toggleInscription } = useApp()
   const { toast } = useToast()
   const connexion = useConnectionRing()
   const { openSheet } = useSheet()
@@ -167,7 +167,9 @@ export default function HomeScreen() {
   if (!currentUser) return null
 
   const myPaid = (statutaire[currentUser.id] ?? []).filter(Boolean).length
-  const resteAPayer = Math.max(0, 12 - myPaid) * mensualite
+  // Mois antérieurs à l'adhésion : non dus, hors du reste à payer (comme sur le web).
+  const mesNonDus = (nonDu[currentUser.id] ?? []).filter((n, i) => n && !statutaire[currentUser.id]?.[i]).length
+  const resteAPayer = Math.max(0, 12 - mesNonDus - myPaid) * mensualite
   const firstName = currentUser.name.split(" ")[0]
   const next = findNextEvent(events)
 
@@ -228,9 +230,9 @@ export default function HomeScreen() {
   const totalRec = events.reduce((s, e) => s + eventBilan(e).recettes, 0)
   const totalDep = events.reduce((s, e) => s + eventBilan(e).validees, 0)
 
-  const due = Object.values(statutaire)
-    .flat()
-    .filter((p) => !p).length
+  const due = Object.entries(statutaire)
+    .flatMap(([id, mois]) => mois.map((p, i) => !p && !nonDu[Number(id)]?.[i]))
+    .filter(Boolean).length
 
   const recentChant = chants[chants.length - 1]
 

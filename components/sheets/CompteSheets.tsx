@@ -22,6 +22,7 @@ import {
 } from "../../lib/api"
 import { dataChanged } from "../../lib/offline"
 import { compteRepository } from "../../lib/offline/entities"
+import { PresencesMembre } from "../Assiduite"
 import { BASIC_ROLES, INITIAL_ROLES, MANDATE_ROLES, ROLE_LABEL } from "../../lib/roles"
 import type { Role } from "../../types"
 import { Button, Card, cx, Field, FormRow2, KeyValue, Muted, Pill, RowBetween, SectionHeader, Select, SheetTitle } from "../ui"
@@ -205,6 +206,9 @@ export function CompteDetailSheet({ compteId }: { compteId: number }) {
   const { toast } = useToast()
   const comptes = useComptes()
   const droitsSur = useDroitsCompte()
+  const { can, session } = useApp()
+  // Lecture des présences : rôles de l'appel, et l'admin de chorale (règle de l'API : PRESENCE_ROLES.lecture).
+  const voitPresences = can("presences") || !!session?.roles.includes("admin_chorale")
   const [demande, setDemande] = useState<Demande>(null)
   const [busy, setBusy] = useState(false)
   const [erreur, setErreur] = useState<string | null>(null)
@@ -326,6 +330,13 @@ export function CompteDetailSheet({ compteId }: { compteId: number }) {
           onConfirmer={() => confirmerRevocation(demande.role)}
           onAnnuler={() => setDemande(null)}
         />
+      ) : null}
+
+      {voitPresences ? (
+        <>
+          <SectionHeader title="Présences · 12 derniers mois" />
+          <PresencesMembre membreId={compte.membershipId} />
+        </>
       ) : null}
 
       <SectionHeader title="Historique des rôles" />

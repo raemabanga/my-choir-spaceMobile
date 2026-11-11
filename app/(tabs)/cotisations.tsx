@@ -33,7 +33,7 @@ function YearArrow({ direction, target, onPress }: { direction: "prev" | "next";
 }
 
 export default function CotisationsScreen() {
-  const { currentUser, chorists, statutaireParAnnee, anneesStatutaire, events, can, mensualite, annee: anneeCourante } = useApp()
+  const { currentUser, chorists, statutaireParAnnee, nonDuParAnnee, anneesStatutaire, events, can, mensualite, annee: anneeCourante } = useApp()
   const { openSheet } = useSheet()
   const [subTab, setSubTab] = useState<"statutaire" | "evenementielle">("statutaire")
   const [viewChoristId, setViewChoristId] = useState(currentUser?.id ?? chorists[0].id)
@@ -53,7 +53,10 @@ export default function CotisationsScreen() {
   const viewChorist = chorists.find((c) => c.id === viewId) ?? currentUser
   const canPay = can("paiements")
   const paid = statutaireParAnnee[annee]?.[viewId] ?? Array<boolean>(12).fill(false)
+  const nonDus = nonDuParAnnee[annee]?.[viewId] ?? Array<boolean>(12).fill(false)
   const paidCount = paid.filter(Boolean).length
+  // Mois dus : les 12, moins ceux d'avant l'adhésion (comme sur le web).
+  const moisDus = 12 - nonDus.filter((n, i) => n && !paid[i]).length
 
   // Grille 4 colonnes (.seals) : 3 rangées de 4 cases flex-1, gap 10px, cases plafonnées à 96px (tablette).
   const rows = [0, 1, 2].map((r) => MONTHS.slice(r * 4, r * 4 + 4).map((m, j) => ({ m, i: r * 4 + j })))
@@ -111,13 +114,15 @@ export default function CotisationsScreen() {
                 <View key={r} className="flex-row gap-2.5">
                   {row.map(({ m, i }) => {
                     const isPaid = paid[i]
-                    const clickable = canPay && !isPaid
+                    const estNonDu = !isPaid && nonDus[i]
+                    const clickable = canPay && !isPaid && !estNonDu
                     return (
                       <View key={m} className="min-w-0 flex-1 items-center">
                         <View className="w-full max-w-[96px]">
                           <Seal
                             month={m}
                             paid={isPaid}
+                            nonDu={estNonDu}
                             clickable={clickable}
                             onPress={() => openSheet(<PaymentConfirmSheet chorishId={viewId} monthIndex={i} year={annee} />)}
                           />
@@ -132,7 +137,10 @@ export default function CotisationsScreen() {
             <RowBetween className="mt-3.5">
               <Muted className="tabular-nums">
                 <Text className="font-sans-medium tabular-nums">{mensualite.toLocaleString("fr-FR")}</Text> FCFA / mois ·{" "}
-                <Text className="font-sans-medium tabular-nums">{paidCount}/12</Text> réglés
+                <Text className="font-sans-medium tabular-nums">
+                  {paidCount}/{moisDus}
+                </Text>{" "}
+                réglés
               </Muted>
             </RowBetween>
           </View>

@@ -18,7 +18,6 @@ import {
   premierCulteLibre,
   seanceDeEvenement,
   seanceDuJour,
-  seancePrioritaire,
   totauxSeance,
   type CleAppel,
 } from "../components/sheets/PresenceSheets"
@@ -51,6 +50,7 @@ import { NUMERO_CULTE_MAX, nomCulte, type StatutPresence, type TypeSeance } from
 import { formatDateLong, formatDateShort, localISODate, MONTHS, parseLocalISODate, todayLocalISO } from "../lib/format"
 import { syncManager, type OfflineRecord } from "../lib/offline"
 import { evenementRepository, numeroSeance, presenceMembreRepository, seanceRepository, type SeanceData } from "../lib/offline/entities"
+import { feuillesUniques, libelleSeance } from "../lib/presences"
 import type { Evenement } from "../types"
 
 /** « liste » : les séances (écran d’arrivée) ; « appel » : la feuille d’une séance. */
@@ -398,23 +398,7 @@ export default function PresencesScreen() {
   /* ------------------------------ Historique ------------------------------ */
 
   /** Une ligne par feuille (deux enregistrements locaux peuvent partager une clé un court instant). */
-  const feuilles = useMemo(() => {
-    const parCle = new Map<string, OfflineRecord<SeanceData>>()
-    const ordre: string[] = []
-    for (const s of historique) {
-      let cle = `REPETITION:${s.data.date}`
-      if (s.data.type === "CULTE") cle = `CULTE:${s.data.date}:${numeroSeance(s.data)}`
-      else if (s.data.type === "EVENEMENT") {
-        const serveur =
-          s.data.evenementId ?? (s.data.evenementLocalId ? evenementRepository.getByLocalId(s.data.evenementLocalId)?.serverId : null)
-        cle = serveur != null ? `EVENEMENT:${serveur}` : `EVENEMENT:local:${s.data.evenementLocalId ?? s.localId}`
-      }
-      const deja = parCle.get(cle)
-      if (!deja) ordre.push(cle)
-      parCle.set(cle, deja ? seancePrioritaire(deja, s) : s)
-    }
-    return ordre.map((cle) => parCle.get(cle)!)
-  }, [historique])
+  const feuilles = useMemo(() => feuillesUniques(historique), [historique])
 
   const compteHistorique = {
     toutes: feuilles.length,
@@ -430,13 +414,6 @@ export default function PresencesScreen() {
         (s.data.evenementId != null && e.id === s.data.evenementId) || (!!s.data.evenementLocalId && e.localId === s.data.evenementLocalId)
     )
 
-  /** Libellé d'une feuille, comme le `libelle` de l'API (culte : intitulé, sinon « 2e culte »). */
-  const libelleSeance = (s: OfflineRecord<SeanceData>) =>
-    s.data.type === "REPETITION"
-      ? (s.data.titre ?? "Répétition")
-      : s.data.type === "CULTE"
-        ? (s.data.titre ?? nomCulte(numeroSeance(s.data)))
-        : (s.data.evenementTitre ?? "Événement")
 
   const ouvrirFeuille = (s: OfflineRecord<SeanceData>) => {
     if (s.data.type === "REPETITION") {
@@ -734,7 +711,7 @@ export default function PresencesScreen() {
                         <LigneHistorique
                           key={s.localId}
                           seance={s}
-                          libelle={libelleSeance(s)}
+                          libelle={libelleSeance(s.data)}
                           last={i === feuillesVisibles.length - 1}
                           onPress={() => ouvrirFeuille(s)}
                         />

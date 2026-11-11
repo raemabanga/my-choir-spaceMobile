@@ -103,7 +103,8 @@ export type ChantData = Omit<Chant, "id" | "localId" | "syncStatus">
 
 export interface StatutaireData {
   mensualite: number
-  exercices: { annee: number; cartes: { membreId: number; nom: string; payes: boolean[] }[] }[]
+  /** `nonDus` : mois antérieurs à l'adhésion (absent dans une copie téléchargée avant cette version). */
+  exercices: { annee: number; cartes: { membreId: number; nom: string; payes: boolean[]; nonDus?: boolean[] }[] }[]
 }
 
 export interface HistoriqueRolesData {

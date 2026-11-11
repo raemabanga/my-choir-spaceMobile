@@ -7,19 +7,12 @@ import type { OfflineRecord } from "../../lib/offline"
 import { NUMERO_CULTE_MAX, nomCulte } from "../../lib/api"
 import { numeroSeance, type SeanceData } from "../../lib/offline/entities"
 import { localISODate, parseLocalISODate } from "../../lib/format"
+import { seancePrioritaire } from "../../lib/presences"
 import { DateField } from "../DateField"
 import { Button, Chip, ChipsRow, Field, FieldLabel, Muted, Select, SheetTitle } from "../ui"
 
-/**
- * Entre une création en attente et un téléchargement qui ramène la même séance du serveur, deux
- * enregistrements locaux peuvent partager une clé (jusqu'à applyCreateResult) : on garde celui qui
- * attend l'envoi (ou a échoué), puis le plus récent.
- */
-export function seancePrioritaire(a: OfflineRecord<SeanceData>, b: OfflineRecord<SeanceData>): OfflineRecord<SeanceData> {
-  const local = (r: OfflineRecord<SeanceData>) => r.syncStatus === "pending" || r.syncStatus === "failed"
-  if (local(a) !== local(b)) return local(a) ? a : b
-  return (b.data.majLe ?? "") > (a.data.majLe ?? "") ? b : a
-}
+// Choix entre deux enregistrements locaux d'une même séance : règle pure partagée (lib/presences.ts).
+export { seancePrioritaire }
 
 /**
  * Clé d'une feuille choisie à l'écran : la répétition d'un jour, un culte (jour et numéro, plusieurs

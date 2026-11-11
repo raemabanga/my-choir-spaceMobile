@@ -48,7 +48,7 @@ interface Rappel {
 }
 
 /** Les rappels voulus, d'après les données du téléphone. */
-function rappelsVoulus(events: Evenement[], cartes: boolean[], annee: number, mensualite: number): Rappel[] {
+function rappelsVoulus(events: Evenement[], cartes: boolean[], nonDus: boolean[], annee: number, mensualite: number): Rappel[] {
   const maintenant = Date.now()
   const rappels: Rappel[] = []
 
@@ -71,7 +71,8 @@ function rappelsVoulus(events: Evenement[], cartes: boolean[], annee: number, me
   // Le 10 de chaque mois restant de l'exercice, si la mensualité n'est pas réglée.
   if (mensualite > 0) {
     for (let mois = 0; mois < 12; mois++) {
-      if (cartes[mois]) continue
+      // Payé, ou antérieur à l'adhésion (non dû) : pas de rappel.
+      if (cartes[mois] || nonDus[mois]) continue
       const dix = new Date(annee, mois, 10, 9, 0, 0)
       if (dix.getTime() <= maintenant) continue
       rappels.push({
@@ -102,9 +103,9 @@ export async function annulerRappels() {
 }
 
 /** Reprogramme les rappels du membre connecté d'après ses données (sans effet si refusé). */
-export async function planifierRappels(params: { events: Evenement[]; cartes: boolean[]; annee: number; mensualite: number }) {
+export async function planifierRappels(params: { events: Evenement[]; cartes: boolean[]; nonDus?: boolean[]; annee: number; mensualite: number }) {
   if (!(await autoriserNotifications())) return
-  const rappels = rappelsVoulus(params.events, params.cartes, params.annee, params.mensualite)
+  const rappels = rappelsVoulus(params.events, params.cartes, params.nonDus ?? [], params.annee, params.mensualite)
   await annulerRappels()
   for (const r of rappels) {
     try {

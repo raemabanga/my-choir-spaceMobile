@@ -112,6 +112,10 @@ interface AppContextValue {
   statutaire: Record<number, boolean[]>
   /** Cartes de chaque exercice : année → membre → 12 mois. */
   statutaireParAnnee: Record<number, Record<number, boolean[]>>
+  /** Mois non dus (antérieurs à l'adhésion) de l'année en cours, par membre. */
+  nonDu: Record<number, boolean[]>
+  /** Mois non dus de chaque exercice : année → membre → 12 mois. */
+  nonDuParAnnee: Record<number, Record<number, boolean[]>>
   /** Exercices consultables, du plus ancien au plus récent (toujours l'année en cours). */
   anneesStatutaire: number[]
   /** Droits du membre courant (mêmes règles que le web). */
@@ -206,6 +210,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const statutaireParAnnee = data.statutaireParAnnee
   const statutaire = useMemo(() => statutaireParAnnee[annee] ?? {}, [statutaireParAnnee, annee])
+  const nonDuParAnnee = data.nonDuParAnnee
+  const nonDu = useMemo(() => nonDuParAnnee[annee] ?? {}, [nonDuParAnnee, annee])
   const anneesStatutaire = useMemo(
     () => [...new Set([...Object.keys(statutaireParAnnee).map(Number), annee])].sort((a, b) => a - b),
     [statutaireParAnnee, annee]
@@ -375,13 +381,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // et recalculés quand les données changent (regroupé : une fois les changements terminés).
   const moi = session?.membershipId ?? null
   const mesCartes = moi !== null ? statutaire[moi] : undefined
+  const mesNonDus = moi !== null ? nonDu[moi] : undefined
   useEffect(() => {
     if (moi === null || !offlineReady || session?.doitChangerMotDePasse) return
     const timer = setTimeout(() => {
-      void planifierRappels({ events: data.events, cartes: mesCartes ?? [], annee, mensualite: data.mensualite })
+      void planifierRappels({ events: data.events, cartes: mesCartes ?? [], nonDus: mesNonDus ?? [], annee, mensualite: data.mensualite })
     }, 1500)
     return () => clearTimeout(timer)
-  }, [moi, offlineReady, session?.doitChangerMotDePasse, data.events, mesCartes, annee, data.mensualite])
+  }, [moi, offlineReady, session?.doitChangerMotDePasse, data.events, mesCartes, mesNonDus, annee, data.mensualite])
 
   /* ------------------------------ Actions (écriture locale) ------------------------------ */
 
@@ -414,6 +421,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     async (chorishId: number, monthIndex: number, amount: number, year: number, details: api.DetailsPaiement) => {
       // Même règle que le serveur : un mois ne se paie qu'une fois.
       if (statutaireParAnnee[year]?.[chorishId]?.[monthIndex]) throw refus(`Le mois de ${MONTHS[monthIndex]} ${year} est déjà réglé.`)
+      // Mois antérieur à l'adhésion : rien n'est dû (même règle que le web).
+      if (nonDuParAnnee[year]?.[chorishId]?.[monthIndex]) throw refus(`${MONTHS[monthIndex]} ${year} est antérieur à l'adhésion : ce mois n'est pas dû.`)
       const membre = chorists.find((c) => c.id === chorishId)
       paiementRepository.create({
         type: "STATUTAIRE",
@@ -432,7 +441,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         saisiLe: new Date().toISOString(),
       })
     },
-    [statutaireParAnnee, chorists, auteur]
+    [statutaireParAnnee, nonDuParAnnee, chorists, auteur]
   )
 
   const confirmEventPayment = useCallback(
@@ -596,6 +605,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     recus,
     statutaire,
     statutaireParAnnee,
+    nonDu,
+    nonDuParAnnee,
     anneesStatutaire,
     perms,
     can,

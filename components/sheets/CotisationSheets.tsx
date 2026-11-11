@@ -164,22 +164,30 @@ export function PaymentConfirmSheet({ chorishId, monthIndex, year }: { chorishId
 /* --------------------------- Paiement rapide (choix choriste + mois) --------------------------- */
 
 export function QuickPaymentSheet() {
-  const { chorists, statutaire, confirmPaymentStatutaire, mensualite, annee } = useApp()
+  const { chorists, statutaire, nonDu, confirmPaymentStatutaire, mensualite, annee } = useApp()
   const { closeSheet } = useSheet()
   const { toast } = useToast()
   const { busy, submit } = usePaymentSubmit()
   const { details, champs } = useDetailsPaiement()
   const isPaid = (id: number, i: number) => statutaire[id]?.[i] ?? false
-  const firstUnpaid = (id: number) => Math.max(0, (statutaire[id] ?? []).findIndex((p) => !p))
+  // Mois antérieur à l'adhésion : non dû, il ne se règle pas.
+  const estNonDu = (id: number, i: number) => !isPaid(id, i) && (nonDu[id]?.[i] ?? false)
+  const firstUnpaid = (id: number) => Math.max(0, MONTHS.findIndex((_, i) => !isPaid(id, i) && !estNonDu(id, i)))
   const [chorishId, setChorishId] = useState(chorists[0].id)
   const [monthIndex, setMonthIndex] = useState(firstUnpaid(chorists[0].id))
   const [amount, setAmount] = useState(String(mensualite))
 
-  const monthOptions = MONTHS.map((m, i) => ({ label: `${m} ${annee}` + (isPaid(chorishId, i) ? " (déjà réglé)" : ""), value: i }))
+  const monthOptions = MONTHS.map((m, i) => ({ label: `${m} ${annee}` + (isPaid(chorishId, i) ? " (déjà réglé)" : ""), value: i })).filter(
+    (o) => !estNonDu(chorishId, o.value)
+  )
 
   function confirm() {
     if (isPaid(chorishId, monthIndex)) {
       toast("Ce mois est déjà réglé")
+      return
+    }
+    if (estNonDu(chorishId, monthIndex)) {
+      toast("Ce mois est antérieur à l'adhésion : il n'est pas dû")
       return
     }
     submit(() => confirmPaymentStatutaire(chorishId, monthIndex, parseInt(amount) || mensualite, annee, details()))

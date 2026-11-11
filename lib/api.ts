@@ -431,6 +431,8 @@ export async function fetchStatutaire() {
         membreId: c.membreId,
         nom: c.nom,
         payes: c.mois.map((m) => m === "PAYE" || m === "PAYE_EN_RETARD"),
+        // Mois antérieurs à l'adhésion du membre : rien n'est dû (comme sur le web).
+        nonDus: c.mois.map((m) => m === "NON_DU"),
       })),
     })),
   }
