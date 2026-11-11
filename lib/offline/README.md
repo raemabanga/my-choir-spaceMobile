@@ -96,10 +96,13 @@ Avec `fullReplace` (téléchargements complets), les éléments `synced` absents
 |---|---|---|---|
 | `parametres`, `historiqueRoles`, `statutaire` | oui | — | Singletons (un seul enregistrement) |
 | `membres`, `comptes` | oui | — | La gestion des comptes reste en ligne ; chaque compte renvoyé par l'API est rangé localement |
-| `evenements` | oui | créer, modifier, supprimer | Suppression refusée localement s'il y a des paiements ou des dépenses (comme le 409 du serveur) |
+| `evenements` | oui | créer, modifier, supprimer | Suppression refusée localement s'il y a des paiements, des dépenses ou une feuille de présence (comme le 409 du serveur ; `aFeuillePresence` vient de `EvenementEntity.presence`) |
 | `paiements` | oui | encaisser, annuler (motif joint à la suppression) | Un paiement pour un événement créé hors ligne attend l'envoi de l'événement (`DependencyPendingError`) |
 | `depenses` | oui | ajouter ; valider une fois envoyée | |
 | `chants` | oui | ajouter, supprimer | |
+| `presenceMembres` (ordre 9) | oui (`GET /espace/presences/membres`) | — | Choristes actifs à appeler ; 403 ignoré pour les rôles sans accès aux présences |
+| `seances` (ordre 10) | oui (`GET /espace/presences/seances?du=…&avecPresences=true`, 12 derniers mois) | faire l'appel (créer, modifier), supprimer | Chaque envoi transmet toute la feuille par `PUT /espace/presences/feuille` (clé naturelle : répétition du jour, culte (jour, numéro 1 à 5) ou événement), avec `base` = `serveurMajLe` ; une feuille d'un événement créé hors ligne attend l'envoi de l'événement |
+| `mesPresences` (ordre 11) | oui (`GET /espace/presences/moi`) | — | Singleton : assiduité du membre connecté (« Mon assiduité » du Profil) |
 
 `AppContext` lit ces données via `context/choraleData.ts` :
 - **Cartes de cotisation** : dernière version du serveur, complétée par les paiements du téléphone (un paiement saisi hors ligne coche son mois, une annulation en attente le décoche).

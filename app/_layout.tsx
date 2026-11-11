@@ -19,6 +19,7 @@ import "../lib/nativewind-interop"
 import { colors } from "../constants/theme"
 import { AppProvider } from "../context/AppContext"
 import { SheetProvider } from "../context/SheetContext"
+import { KeyboardToolbar } from "../components/keyboard"
 import { ToastProvider } from "../context/ToastContext"
 import { hasStoredToken } from "../lib/api"
 import { initializeOffline, OfflineProvider } from "../lib/offline"
@@ -61,10 +62,13 @@ export default function RootLayout() {
                   <Stack.Screen name="change-password" />
                   <Stack.Screen name="forgot-password" />
                   <Stack.Screen name="comptes" />
+                  <Stack.Screen name="presences" />
                   <Stack.Screen name="chant/[id]" />
                   <Stack.Screen name="initial-sync" options={{ gestureEnabled: false }} />
                   <Stack.Screen name="(tabs)" />
                 </Stack>
+                {/* Barre « OK » au-dessus du clavier (iPhone), partagée par tous les champs. */}
+                <KeyboardToolbar />
               </SheetProvider>
             </ToastProvider>
           </AppProvider>

@@ -349,6 +349,8 @@ export interface ApiEvenement {
   inscriptionsOuvertes?: boolean
   inscrits?: { membreId: number; nom: string }[]
   inscrit?: boolean
+  /** Appel fait pour cet événement (absent sur un serveur plus ancien). */
+  presence?: PresenceEvenement | null
 }
 
 export interface ApiDepense {
@@ -449,6 +451,7 @@ export function toEvenement(e: ApiEvenement): Evenement {
     inscriptionsOuvertes: e.inscriptionsOuvertes ?? false,
     inscrits: (e.inscrits ?? []).map((i) => ({ id: i.membreId, nom: i.nom })),
     inscrit: e.inscrit ?? false,
+    aFeuillePresence: e.presence != null,
   }
 }
 
@@ -487,7 +490,7 @@ export async function fetchInscriptions() {
   return evenements.flatMap((e) => (e.inscrits ?? []).map((i) => ({ evenementId: e.id, membreId: i.membreId, nom: i.nom })))
 }
 
-/** Refusé (409) si des paiements ou des dépenses sont rattachés à l'événement. */
+/** Refusé (409) si des paiements, des dépenses, des recettes ou une feuille de présence sont rattachés à l'événement. */
 export function supprimerEvenement(id: number) {
   return request<void>(`/espace/evenements/${id}`, { method: "DELETE" })
 }
@@ -594,6 +597,127 @@ export function creerChant(form: Omit<ApiChant, "id" | "document" | "audio">) {
 
 export function supprimerChant(id: number) {
   return request<void>(`/espace/chants/${id}`, { method: "DELETE" })
+}
+
+/* ------------------------------------ Présences ------------------------------------ */
+// Faire l'appel : bureau, secrétariat, commission recette et commission présence (l'admin lit
+// seulement, aucun écran mobile). « Mon assiduité » : tous les membres.
+
+/** CULTE : plusieurs par jour, numérotés de 1 à NUMERO_CULTE_MAX (`numero`). */
+export type TypeSeance = "REPETITION" | "EVENEMENT" | "CULTE"
+
+/** Nombre maximal de cultes dans une journée (numéros 1 à 5, comme l'API). */
+export const NUMERO_CULTE_MAX = 5
+
+/** Libellé d'un type de séance (« Répétition », « Culte », « Événement »). */
+export const LIBELLE_TYPE_SEANCE: Record<TypeSeance, string> = { REPETITION: "Répétition", CULTE: "Culte", EVENEMENT: "Événement" }
+
+/** Nom d'un culte d'après son numéro, comme le `libelle` de l'API : 1 → « 1er culte », n → « ne culte ». */
+export const nomCulte = (numero: number | null | undefined) => `${numero ?? 1}${(numero ?? 1) === 1 ? "er" : "e"} culte`
+export type StatutPresence = "PRESENT" | "EXCUSE" | "ABSENT"
+export type CategorieAssiduite = "ASSIDU" | "IRREGULIER" | "DECROCHEUR"
+
+export interface PresenceMembre {
+  id: number
+  nom: string
+  /** "AAAA-MM-JJ", informatif seulement. */
+  joinedAt: string
+}
+
+export interface LignePresence {
+  membreId: number
+  nom: string
+  statut: StatutPresence
+  motif: string | null
+}
+
+/** Feuille de présence enregistrée (une répétition par jour, un culte par (jour, numéro), une feuille par événement). */
+export interface Seance {
+  id: number
+  type: TypeSeance
+  /** "AAAA-MM-JJ" */
+  date: string
+  /** Répétition et culte (« Culte de 7 h ») ; null pour un événement. */
+  titre: string | null
+  /** Numéro du culte dans la journée (1 à 5) ; null pour les autres types. */
+  numero: number | null
+  /** Culte : titre ?? « 1er culte », « 2e culte »… */
+  libelle: string
+  evenement: { id: number; titre: string } | null
+  presents: number
+  excuses: number
+  absents: number
+  effectif: number
+  taux: number
+  auteur: string | null
+  /** Date-heure ISO du dernier enregistrement. */
+  majLe: string
+  presences?: LignePresence[]
+}
+
+export interface FeuillePresence {
+  /** null : appel pas encore fait. */
+  seance: Seance | null
+  type: TypeSeance
+  date: string
+  evenement: { id: number; titre: string; date: string | null } | null
+  lignes: (LignePresence & { actif: boolean; inscrit: boolean; enregistre: boolean })[]
+}
+
+export interface MesPresences {
+  /** "AAAA-MM-JJ", début de la période (365 jours). */
+  depuis: string
+  attendues: number
+  presents: number
+  excuses: number
+  absents: number
+  taux: number | null
+  categorie: CategorieAssiduite | null
+  dernieres: { seanceId: number; date: string; type: TypeSeance; libelle: string; statut: StatutPresence; motif: string | null }[]
+}
+
+export interface FeuilleAEnvoyer {
+  date: string
+  /** Répétition et culte (ignoré par l'API pour un événement). */
+  titre: string | null
+  /** Culte seulement (1 à 5, obligatoire) ; null pour les autres types. */
+  numero: number | null
+  presences: { membreId: number; statut: StatutPresence; motif: string | null }[]
+  /** `majLe` serveur de la version de départ (null : aucune séance vue). */
+  base: string | null
+}
+
+/** Totaux de l'appel d'un événement (EvenementEntity.presence). */
+export interface PresenceEvenement {
+  seanceId: number
+  presents: number
+  excuses: number
+  absents: number
+  effectif: number
+}
+
+/** Choristes actifs à appeler (rôles « présences » ; 403 pour les autres). */
+export function fetchPresenceMembres() {
+  return request<PresenceMembre[]>("/espace/presences/membres")
+}
+
+/** Séances depuis `du` ("AAAA-MM-JJ"), avec toutes leurs lignes. */
+export function fetchSeances(du: string) {
+  return request<Seance[]>(`/espace/presences/seances?du=${du}&avecPresences=true`)
+}
+
+/** Crée, remplace ou fusionne la feuille (clé : répétition du jour, culte (jour, numéro), ou événement). Seule écriture : sert à la création et à la modification. */
+export function enregistrerFeuille(body: FeuilleAEnvoyer & { type: TypeSeance; evenementId: number | null }) {
+  return request<FeuillePresence>("/espace/presences/feuille", { method: "PUT", body: JSON.stringify(body) })
+}
+
+export function supprimerSeance(id: number) {
+  return request<void>(`/espace/presences/seances/${id}`, { method: "DELETE" })
+}
+
+/** Assiduité du membre connecté sur les 365 derniers jours (tous les membres). */
+export function fetchMesPresences() {
+  return request<MesPresences>("/espace/presences/moi")
 }
 
 /* ------------------------------ Paramètres de la chorale ------------------------------ */

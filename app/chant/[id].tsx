@@ -86,8 +86,8 @@ export default function ChantScreen() {
                 {chant.tonalite ? <Pill variant="gold">{chant.tonalite}</Pill> : null}
               </View>
 
-              {/* Audio et partition : ajoutés depuis le portail web (chant déjà envoyé au serveur). */}
-              {chant.audio && chant.id >= 0 ? <ChantAudio chantId={chant.id} meta={chant.audio} /> : null}
+              {/* Partition : ajoutée depuis le portail web (chant déjà envoyé au serveur). L'audio est
+                  dans le lecteur fixé en bas de l'écran. */}
               {chant.document && chant.id >= 0 ? (
                 <Button
                   title={ouverture ? "Ouverture…" : "Voir la partition"}
@@ -169,6 +169,16 @@ export default function ChantScreen() {
           )}
         </Container>
       </ScrollView>
+
+      {/* Mini-lecteur fixé en bas : reste visible pendant la lecture des paroles. */}
+      {chant?.audio && chant.id >= 0 ? (
+        <ChantAudio
+          chantId={chant.id}
+          meta={chant.audio}
+          titre={chant.titre}
+          sousTitre={chant.compositeur.trim() || chant.categorie}
+        />
+      ) : null}
     </SafeAreaView>
   )
 }

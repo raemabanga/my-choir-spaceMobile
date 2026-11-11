@@ -3,7 +3,8 @@
 
 import { Lock, UserRound } from "lucide-react-native"
 import React, { useCallback, useEffect, useMemo, useState } from "react"
-import { ActivityIndicator, RefreshControl, ScrollView, Text, View } from "react-native"
+import { ActivityIndicator, RefreshControl, Text, View } from "react-native"
+import { KeyboardAwareScrollView } from "../components/keyboard"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { BackHeader } from "../components/AppHeader"
 import { Container } from "../components/layout"
@@ -119,7 +120,7 @@ export default function ComptesScreen() {
   return (
     <SafeAreaView className="flex-1 bg-paper" edges={["top"]}>
       <BackHeader title="Comptes & Rôles" />
-      <ScrollView
+      <KeyboardAwareScrollView
         className="flex-1 bg-surface"
         contentContainerClassName="pb-7 pt-4"
         keyboardShouldPersistTaps="handled"
@@ -204,7 +205,7 @@ export default function ComptesScreen() {
             </>
           )}
         </Container>
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   )
 }

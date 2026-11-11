@@ -29,6 +29,30 @@ export function todayISO() {
   return new Date().toISOString().slice(0, 10)
 }
 
+const pad2 = (n: number) => String(n).padStart(2, "0")
+
+/** "AAAA-MM-JJ" d'une date en heure locale (toISOString donnerait la veille entre minuit et 1 h en UTC+1). */
+export function localISODate(d: Date): string {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+}
+
+export function todayLocalISO(): string {
+  return localISODate(new Date())
+}
+
+/** "AAAA-MM-JJ" → Date locale à midi (pas de décalage de fuseau dans le sélecteur). */
+export function parseLocalISODate(iso: string): Date {
+  const [y, m, d] = iso.slice(0, 10).split("-").map(Number)
+  return new Date(y, (m || 1) - 1, d || 1, 12)
+}
+
+/** Ajoute `jours` (négatif possible) à une date "AAAA-MM-JJ". */
+export function addDaysISO(iso: string, jours: number): string {
+  const d = parseLocalISODate(iso)
+  d.setDate(d.getDate() + jours)
+  return localISODate(d)
+}
+
 /** Index du mois en cours dans l'exercice `annee` (-1 avant, 12 après). */
 export function currentMonthIndex(annee: number) {
   const now = new Date()

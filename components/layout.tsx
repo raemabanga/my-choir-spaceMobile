@@ -1,11 +1,12 @@
 import React from "react"
-import { RefreshControl, ScrollView, ScrollViewProps, Text, View } from "react-native"
+import { RefreshControl, ScrollViewProps, Text, View } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { colors } from "../constants/theme"
 import { useApp } from "../context/AppContext"
 import { useSyncSummary } from "../hooks/offline"
 import { useResponsive } from "../lib/responsive"
 import { AppHeader } from "./AppHeader"
+import { KeyboardAwareScrollView } from "./keyboard"
 import { OfflineBanner } from "./sync"
 import { cx } from "./ui"
 
@@ -45,7 +46,7 @@ export function Screen({
   return (
     <SafeAreaView className={hero ? "flex-1 bg-navy" : "flex-1 bg-paper"} edges={["top"]}>
       {hero ? null : <AppHeader title={title} />}
-      <ScrollView
+      <KeyboardAwareScrollView
         className="flex-1 bg-surface"
         contentContainerClassName={hero ? "pb-7" : "pb-7 pt-4"}
         keyboardShouldPersistTaps="handled"
@@ -72,7 +73,7 @@ export function Screen({
           ) : null}
           {children}
         </Container>
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   )
 }

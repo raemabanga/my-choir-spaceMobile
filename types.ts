@@ -7,6 +7,7 @@ export type Role =
   | "choriste"
   | "commission_recette"
   | "commission_musicale"
+  | "commission_presence"
 
 /** Mêmes droits que le portail web (Perms), calculés dans lib/roles.ts. */
 export type Permission =
@@ -22,6 +23,7 @@ export type Permission =
   | "chantsCreer"
   | "chantsVoir"
   | "rapports"
+  | "presences"
 
 export interface Mandat {
   debut: string
@@ -103,6 +105,8 @@ export interface Evenement extends OfflineFields {
   inscrits?: { id: number; nom: string }[]
   /** Le membre connecté est inscrit. */
   inscrit?: boolean
+  /** Une feuille de présence est rattachée (côté serveur). */
+  aFeuillePresence?: boolean
 }
 
 export type RecuType = "Statutaire" | "Événementielle"

@@ -8,6 +8,7 @@ import { router } from "expo-router"
 import { ChevronLeft, Heart, Music, Plus } from "lucide-react-native"
 import { useCallback, useMemo, useRef, useState, type ComponentRef } from "react"
 import { Pressable, RefreshControl, ScrollView, Text, View, type GestureResponderEvent } from "react-native"
+import { KeyboardAwareScrollView } from "../../components/keyboard"
 import { SafeAreaView } from "react-native-safe-area-context"
 
 import { AppHeader } from "../../components/AppHeader"
@@ -257,7 +258,7 @@ export default function ChantsScreen() {
       <View className="flex-1 bg-surface">
         {onglet === "alphabet" ? (
           <>
-            <ScrollView
+            <KeyboardAwareScrollView
               ref={scroll}
               className="flex-1"
               contentContainerClassName="pb-8"
@@ -269,13 +270,13 @@ export default function ChantsScreen() {
               }}
             >
               {alphabetiques.length === 0 ? aucunResultat : liste(alphabetiques, { index: true })}
-            </ScrollView>
+            </KeyboardAwareScrollView>
             {alphabetiques.length > 0 ? <IndexAlphabet disponibles={disponibles} onLettre={sauterA} /> : null}
           </>
         ) : null}
 
         {onglet === "numeros" ? (
-          <ScrollView className="flex-1" contentContainerClassName="pb-8 pt-2" keyboardShouldPersistTaps="handled" refreshControl={refreshControl}>
+          <KeyboardAwareScrollView className="flex-1" contentContainerClassName="pb-8 pt-2" keyboardShouldPersistTaps="handled" refreshControl={refreshControl}>
             {visibles.length === 0 ? (
               aucunResultat
             ) : (
@@ -295,11 +296,11 @@ export default function ChantsScreen() {
                   ))}
               </View>
             )}
-          </ScrollView>
+          </KeyboardAwareScrollView>
         ) : null}
 
         {onglet === "themes" ? (
-          <ScrollView className="flex-1" contentContainerClassName="pb-8" keyboardShouldPersistTaps="handled" refreshControl={refreshControl}>
+          <KeyboardAwareScrollView className="flex-1" contentContainerClassName="pb-8" keyboardShouldPersistTaps="handled" refreshControl={refreshControl}>
             {theme === null ? (
               themes.length === 0 ? (
                 aucunResultat
@@ -341,11 +342,11 @@ export default function ChantsScreen() {
                 {liste(trierParTitre(visibles.filter((c) => (c.categorie || "Non classé") === theme)))}
               </>
             )}
-          </ScrollView>
+          </KeyboardAwareScrollView>
         ) : null}
 
         {onglet === "favoris" ? (
-          <ScrollView className="flex-1" contentContainerClassName="pb-8" keyboardShouldPersistTaps="handled" refreshControl={refreshControl}>
+          <KeyboardAwareScrollView className="flex-1" contentContainerClassName="pb-8" keyboardShouldPersistTaps="handled" refreshControl={refreshControl}>
             {(() => {
               const favs = alphabetiques.filter((c) => favoris.has(cleChant(c)))
               if (favs.length > 0) return liste(favs)
@@ -355,7 +356,7 @@ export default function ChantsScreen() {
                 <EmptyState icon={Heart} title="Aucun favori" subtitle="Ouvrez un chant et touchez le cœur pour le retrouver ici." />
               )
             })()}
-          </ScrollView>
+          </KeyboardAwareScrollView>
         ) : null}
       </View>
     </SafeAreaView>

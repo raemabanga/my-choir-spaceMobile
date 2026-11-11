@@ -7,7 +7,7 @@ import { useApp } from "../context/AppContext"
 import { useResponsive } from "../lib/responsive"
 
 /** Barre d'une page secondaire (même style que AppHeader) : bouton retour, titre, action à droite. */
-export function BackHeader({ title, right }: { title: string; right?: React.ReactNode }) {
+export function BackHeader({ title, right, onBack }: { title: string; right?: React.ReactNode; /** Retour personnalisé (ex. de la feuille vers la liste) ; sinon page précédente. */ onBack?: () => void }) {
   const { gutter, maxWidth } = useResponsive()
   const { choraleNom } = useApp()
   return (
@@ -15,7 +15,7 @@ export function BackHeader({ title, right }: { title: string; right?: React.Reac
       {/* Largeur max et gouttière dépendent de la taille d'écran : en style. */}
       <View className="w-full flex-row items-center gap-1 self-center pb-3.5 pt-0.5" style={{ maxWidth, paddingHorizontal: gutter }}>
         <Pressable
-          onPress={() => router.back()}
+          onPress={() => (onBack ? onBack() : router.back())}
           accessibilityRole="button"
           accessibilityLabel="Retour"
           hitSlop={4}

@@ -6,14 +6,15 @@
 // statuts en pastilles douces avec point, montants en Geist à chiffres tabulaires,
 // Geist Mono réservé aux numéros de reçu et aux codes, aucune emoji.
 
-import { Picker } from "@react-native-picker/picker"
 import { LinearGradient } from "expo-linear-gradient"
-import { ChevronRight, Search, type LucideIcon } from "lucide-react-native"
-import React, { useState } from "react"
-import { Pressable, Text, TextInput, TextInputProps, TextProps, View, ViewProps } from "react-native"
+import { Check, ChevronDown, ChevronRight, Search, X, type LucideIcon } from "lucide-react-native"
+import React, { useEffect, useMemo, useRef, useState } from "react"
+import { FlatList, Keyboard, Modal, Pressable, Text, TextInput, TextInputProps, TextProps, useWindowDimensions, View, ViewProps } from "react-native"
+import { useSafeAreaInsets } from "react-native-safe-area-context"
 import Svg, { Rect } from "react-native-svg"
 import palette from "../constants/palette"
-import { avatarClasses, colors, fonts, MIN_TOUCH, shadows } from "../constants/theme"
+import { keyboardToolbarProps, signalerFocusChamp } from "./keyboard"
+import { avatarClasses, colors, MIN_TOUCH, shadows } from "../constants/theme"
 
 /* ------------------------------ Fusion de classes (cx) ------------------------------ */
 
@@ -421,7 +422,13 @@ export function SearchBar(props: TextInputProps) {
         placeholderTextColor={colors.inkLight}
         accessibilityLabel={props.placeholder}
         className="flex-1 p-0 font-sans text-[13px] text-ink"
+        returnKeyType="search"
+        {...keyboardToolbarProps}
         {...props}
+        onFocus={(e) => {
+          signalerFocusChamp()
+          props.onFocus?.(e)
+        }}
       />
     </View>
   )
@@ -468,8 +475,11 @@ export function Field(
           accessibilityLabel={label || props.placeholder}
           multiline={multiline}
           editable={editable}
+          // Barre « OK » au-dessus du clavier sur iPhone (aussi pour les claviers numériques).
+          {...keyboardToolbarProps}
           onFocus={(e) => {
             setFocused(true)
+            signalerFocusChamp()
             onFocus?.(e)
           }}
           onBlur={(e) => {
@@ -491,36 +501,168 @@ export function Field(
   )
 }
 
+/** Recherche sans tenir compte des accents ni de la casse (« Eleve » trouve « Élevé »). */
+const normalizeSearch = (s: string) =>
+  s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .trim()
+
+/** Hauteur d'une option, hauteur max de la liste, écart au champ et marge aux bords de l'écran. */
+const OPTION_HEIGHT = MIN_TOUCH
+const LIST_MAX_HEIGHT = 5.5 * OPTION_HEIGHT
+const POPOVER_GAP = 6
+const SCREEN_MARGIN = 12
+
+/**
+ * Champ de sélection : se présente comme un champ de saisie ; au toucher, un petit cadre
+ * s'ouvre juste sous le champ (ou au-dessus s'il manque de place) avec une recherche et la
+ * liste des choix. Toucher en dehors ou le bouton retour le referme.
+ */
 export function Select<T extends string | number>({
   label,
   value,
   onChange,
   options,
   first,
+  placeholder = "Choisir…",
 }: {
   label: string
   value: T
   onChange: (value: T) => void
   options: { label: string; value: T }[]
   first?: boolean
+  placeholder?: string
 }) {
+  const triggerRef = useRef<React.ComponentRef<typeof View>>(null)
+  const [anchor, setAnchor] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
+  const [query, setQuery] = useState("")
+  const [keyboardHeight, setKeyboardHeight] = useState(0)
+  const window = useWindowDimensions()
+  const insets = useSafeAreaInsets()
+  const open = anchor !== null
+
+  const selected = options.find((o) => o.value === value)
+  const filtered = useMemo(() => {
+    const q = normalizeSearch(query)
+    return q ? options.filter((o) => normalizeSearch(o.label).includes(q)) : options
+  }, [options, query])
+
+  // Le clavier (recherche) réduit la place disponible sous le champ.
+  useEffect(() => {
+    if (!open) return
+    const show = Keyboard.addListener("keyboardDidShow", (e) => setKeyboardHeight(e.endCoordinates.height))
+    const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboardHeight(0))
+    return () => {
+      show.remove()
+      hide.remove()
+    }
+  }, [open])
+
+  const openPopover = () => {
+    Keyboard.dismiss()
+    triggerRef.current?.measureInWindow((x, y, width, height) => {
+      setQuery("")
+      setAnchor({ x, y, width, height })
+    })
+  }
+  const close = () => {
+    Keyboard.dismiss()
+    setAnchor(null)
+  }
+  const choose = (v: T) => {
+    onChange(v)
+    close()
+  }
+
+  // Position du cadre : largeur du champ (240 min), sous le champ si la place suffit, sinon au-dessus.
+  let popoverStyle: ViewProps["style"] = undefined
+  if (anchor) {
+    const width = Math.min(Math.max(anchor.width, 240), window.width - 2 * SCREEN_MARGIN)
+    const left = Math.min(Math.max(anchor.x, SCREEN_MARGIN), window.width - SCREEN_MARGIN - width)
+    const wanted = 56 + Math.min(Math.max(filtered.length, 1) * OPTION_HEIGHT, LIST_MAX_HEIGHT) + 8
+    const below = window.height - keyboardHeight - insets.bottom - SCREEN_MARGIN - (anchor.y + anchor.height + POPOVER_GAP)
+    const above = anchor.y - POPOVER_GAP - insets.top - SCREEN_MARGIN
+    popoverStyle =
+      below >= wanted || below >= above
+        ? { left, width, top: anchor.y + anchor.height + POPOVER_GAP, maxHeight: Math.max(below, 120) }
+        : { left, width, bottom: window.height - anchor.y + POPOVER_GAP, maxHeight: above }
+  }
+
   return (
     <View>
       <FieldLabel first={first}>{label}</FieldLabel>
-      <View className={cx(fieldBoxClasses(false), "overflow-hidden")}>
-        {/* Composant tiers : style passé en props. */}
-        <Picker
-          selectedValue={value}
-          onValueChange={(v) => onChange(v as T)}
-          accessibilityLabel={label}
-          style={{ color: colors.ink, fontFamily: fonts.regular, fontSize: 15, minHeight: MIN_TOUCH, paddingHorizontal: 12, borderWidth: 0, backgroundColor: colors.paper }}
-          dropdownIconColor={colors.inkLight}
-        >
-          {options.map((opt) => (
-            <Picker.Item key={String(opt.value)} label={opt.label} value={opt.value} />
-          ))}
-        </Picker>
-      </View>
+      <Pressable
+        ref={triggerRef}
+        onPress={openPopover}
+        accessibilityRole="combobox"
+        accessibilityLabel={label}
+        accessibilityValue={{ text: selected?.label ?? placeholder }}
+        accessibilityState={{ expanded: open }}
+        className={cx(fieldBoxClasses(open), "min-h-touch flex-row items-center gap-2 pl-3 pr-2.5")}
+        style={open ? focusOutline : undefined}
+      >
+        <Text numberOfLines={1} className={cx("flex-1 font-sans text-[15px]", selected ? "text-ink" : "text-ink-light")}>
+          {selected?.label ?? placeholder}
+        </Text>
+        <ChevronDown size={18} color={colors.inkLight} strokeWidth={1.75} style={open ? { transform: [{ rotate: "180deg" }] } : undefined} />
+      </Pressable>
+
+      <Modal visible={open} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={close}>
+        {/* Fond transparent : toucher en dehors du cadre le referme. */}
+        <Pressable className="flex-1" onPress={close} accessibilityLabel="Fermer la liste" accessibilityRole="button" />
+        {anchor ? (
+          <View className="absolute overflow-hidden rounded-[12px] border border-line bg-paper" style={[shadows.toast, popoverStyle]}>
+            <View className="border-b border-line-soft p-2">
+              <View className="min-h-[40px] flex-row items-center gap-2 rounded-field border border-line-strong bg-surface-soft px-2.5">
+                <Search size={15} color={colors.n400} strokeWidth={1.75} />
+                <TextInput
+                  value={query}
+                  onChangeText={setQuery}
+                  placeholder="Rechercher…"
+                  placeholderTextColor={colors.inkLight}
+                  accessibilityLabel={`Rechercher dans ${label}`}
+                  autoCorrect={false}
+                  returnKeyType="search"
+                  className="flex-1 p-0 font-sans text-[14px] text-ink"
+                />
+                {query ? (
+                  <Pressable onPress={() => setQuery("")} hitSlop={10} accessibilityLabel="Effacer la recherche" accessibilityRole="button">
+                    <X size={15} color={colors.inkLight} strokeWidth={1.75} />
+                  </Pressable>
+                ) : null}
+              </View>
+            </View>
+            <FlatList
+              data={filtered}
+              keyExtractor={(o) => String(o.value)}
+              keyboardShouldPersistTaps="handled"
+              style={{ maxHeight: LIST_MAX_HEIGHT, flexGrow: 0, flexShrink: 1 }}
+              contentContainerStyle={{ paddingVertical: 4 }}
+              getItemLayout={(_, index) => ({ length: OPTION_HEIGHT, offset: OPTION_HEIGHT * index, index })}
+              initialScrollIndex={Math.max(0, filtered.findIndex((o) => o.value === value))}
+              ListEmptyComponent={<Text className="px-3 py-3 font-sans text-[13px] text-ink-light">Aucun résultat</Text>}
+              renderItem={({ item }) => {
+                const isSelected = item.value === value
+                return (
+                  <Pressable
+                    onPress={() => choose(item.value)}
+                    accessibilityRole="menuitem"
+                    accessibilityState={{ selected: isSelected }}
+                    className={cx("mx-1 h-[44px] flex-row items-center gap-2 rounded-[8px] px-2.5", isSelected ? "bg-gold-soft" : "active:bg-surface-soft")}
+                  >
+                    <Text numberOfLines={1} className={cx("flex-1 text-[14px]", isSelected ? "font-sans-semibold text-ink" : "font-sans text-ink")}>
+                      {item.label}
+                    </Text>
+                    {isSelected ? <Check size={16} color={colors.goldStrong} strokeWidth={2} /> : null}
+                  </Pressable>
+                )
+              }}
+            />
+          </View>
+        ) : null}
+      </Modal>
     </View>
   )
 }

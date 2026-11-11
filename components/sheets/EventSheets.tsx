@@ -1,4 +1,6 @@
 // Bottom sheets Événements — conformes à openEventForm() et openEventSheet() du prototype cantoria-app-mobile-v2.html.
+import { useRouter } from "expo-router"
+import { ClipboardCheck } from "lucide-react-native"
 import { useState } from "react"
 import { Pressable, Switch, Text, View } from "react-native"
 import { colors } from "../../constants/theme"
@@ -6,12 +8,15 @@ import { errorMessage, useApp } from "../../context/AppContext"
 import { parId } from "../../context/choraleData"
 import { useSheet } from "../../context/SheetContext"
 import { useToast } from "../../context/ToastContext"
+import { useOfflineCollection } from "../../hooks/offline"
 import type { ModeReglement } from "../../lib/api"
+import { seanceRepository } from "../../lib/offline/entities"
 import { eventBilan, fmt, formatDateShort } from "../../lib/format"
 import type { Evenement } from "../../types"
 import { DateField } from "../DateField"
 import { RecordSyncBadge } from "../sync"
-import { Button, Card, Field, FieldLabel, FormRow2, KeyValue, ListRow, Muted, Pill, SectionHeader, Select, SheetTitle } from "../ui"
+import { Button, Card, CardTitle, Field, FieldLabel, FormRow2, KeyValue, ListRow, Muted, Pill, ProgressBar, SectionHeader, Select, SheetTitle } from "../ui"
+import { seanceDeEvenement, totauxSeance } from "./PresenceSheets"
 
 // Types d'événement, catégories de dépense et modes de règlement : ceux de la chorale
 // (Paramètres du portail web), via useApp().parametres.
@@ -159,16 +164,34 @@ export function EventDetailSheet({ eventId }: { eventId: number }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const ev = parId(events, eventId)
   const { categoriesDepense, modesReglement } = parametres
+  const [showDepForm, setShowDepForm] = useState(false)
   const [depLabel, setDepLabel] = useState("")
   const [depMontant, setDepMontant] = useState("")
   const [depCategorie, setDepCategorie] = useState(categoriesDepense[0] ?? "Divers")
   const [depBeneficiaire, setDepBeneficiaire] = useState("")
   const [depMode, setDepMode] = useState<ModeReglement>(modesReglement[0]?.code ?? "ESPECES")
   const [busy, setBusy] = useState(false)
+  // Feuilles de présence du téléphone (carte « Présences ») ; hooks appelés avant le retour anticipé.
+  const { items: seances } = useOfflineCollection(seanceRepository)
+  const router = useRouter()
 
   if (!ev || !currentUser) return null
 
+  const seance = can("presences") ? seanceDeEvenement(seances, { serverId: ev.id > 0 ? ev.id : null, localId: ev.localId ?? null }) : null
+  const totaux = seance ? totauxSeance(seance.data.presences) : null
+  const faireAppel = () => {
+    closeSheet()
+    router.push({ pathname: "/presences", params: { vue: "appel", type: "evenement", evenementId: String(ev.id) } })
+  }
+
   const bilan = eventBilan(ev)
+
+  function cancelDepense() {
+    setDepLabel("")
+    setDepMontant("")
+    setDepBeneficiaire("")
+    setShowDepForm(false)
+  }
 
   async function handleAddDepense() {
     if (busy) return
@@ -177,17 +200,14 @@ export function EventDetailSheet({ eventId }: { eventId: number }) {
       toast("Renseignez un intitulé et un montant")
       return
     }
-    if (!depBeneficiaire.trim()) {
-      toast("Renseignez le bénéficiaire de la dépense")
-      return
-    }
     setBusy(true)
     try {
       await addDepense(eventId, depLabel.trim(), montant, { categorie: depCategorie, beneficiaire: depBeneficiaire.trim(), mode: depMode })
       setDepLabel("")
       setDepMontant("")
       setDepBeneficiaire("")
-      toast("Dépense ajoutée — en attente de validation")
+      setShowDepForm(false)
+      toast("Dépense enregistrée — en attente de validation")
     } catch (e) {
       toast(errorMessage(e))
     } finally {
@@ -263,6 +283,29 @@ export function EventDetailSheet({ eventId }: { eventId: number }) {
         </Card>
       ) : null}
 
+      {/* Présences : faire ou modifier l'appel de l'événement (rôles « présences »). */}
+      {can("presences") ? (
+        <Card className="mt-1.5">
+          <CardTitle>Présences</CardTitle>
+          {totaux ? (
+            <>
+              <View className="mt-1 flex-row flex-wrap gap-1.5">
+                <Pill variant="green" mono>{`Présents ${totaux.presents}`}</Pill>
+                <Pill variant="pending" mono>{`Excusés ${totaux.excuses}`}</Pill>
+                <Pill variant="burg" mono>{`Absents ${totaux.absents}`}</Pill>
+              </View>
+              <ProgressBar percent={totaux.effectif ? (totaux.presents / totaux.effectif) * 100 : 0} />
+              <Button small variant="outline" icon={ClipboardCheck} title="Modifier l'appel" className="mt-2" onPress={faireAppel} />
+            </>
+          ) : (
+            <>
+              <Muted>L'appel n'a pas encore été fait pour cet événement.</Muted>
+              <Button small variant="outline" icon={ClipboardCheck} title="Faire l'appel" className="mt-2" onPress={faireAppel} />
+            </>
+          )}
+        </Card>
+      ) : null}
+
       {/* Gestion : bureau, trésorerie, secrétariat (comme sur le web). Marche aussi hors ligne. */}
       {can("evenements") ? (
         confirmDelete ? (
@@ -319,31 +362,37 @@ export function EventDetailSheet({ eventId }: { eventId: number }) {
             ))
           )}
 
-          <View className="mt-2.5">
-            <FormRow2>
-              <Field label="" placeholder="Intitulé" value={depLabel} onChangeText={setDepLabel} />
-              <Field label="" placeholder="Montant" value={depMontant} onChangeText={setDepMontant} keyboardType="numeric" mono />
-            </FormRow2>
-            {/* Champs exigés par l'API (comme sur le web). */}
-            <Field label="Bénéficiaire" placeholder="Ex : Sono Plus SARL" value={depBeneficiaire} onChangeText={setDepBeneficiaire} />
-            <FormRow2>
-              <Select label="Catégorie" value={depCategorie} onChange={setDepCategorie} options={categoriesDepense.map((c) => ({ label: c, value: c }))} />
-              <Select
-                label="Mode"
-                value={depMode}
-                onChange={setDepMode}
-                options={modesReglement.map((m) => ({ label: m.label, value: m.code }))}
-              />
-            </FormRow2>
-          </View>
-          <Button
-            title={busy ? "Ajout…" : "+ Ajouter une dépense"}
-            variant="ghost"
-            block
-            className="mt-2"
-            disabled={busy}
-            onPress={handleAddDepense}
-          />
+          {/* « Ajouter une dépense » ouvre le formulaire ; « Enregistrer » l'envoie et le referme.
+              Pour une autre dépense, on clique de nouveau sur « Ajouter une dépense ». */}
+          {showDepForm ? (
+            <Card className="mt-2.5">
+              <Text className="font-sans-semibold text-[14px] text-ink">Nouvelle dépense</Text>
+              <FormRow2>
+                <Field label="Intitulé" placeholder="Ex : Location sono" value={depLabel} onChangeText={setDepLabel} />
+                <Field label="Montant" placeholder="0" value={depMontant} onChangeText={setDepMontant} keyboardType="numeric" mono />
+              </FormRow2>
+              <Field label="Bénéficiaire (facultatif)" placeholder="Ex : Sono Plus SARL" value={depBeneficiaire} onChangeText={setDepBeneficiaire} />
+              <FormRow2>
+                <Select label="Catégorie" value={depCategorie} onChange={setDepCategorie} options={categoriesDepense.map((c) => ({ label: c, value: c }))} />
+                <Select
+                  label="Mode"
+                  value={depMode}
+                  onChange={setDepMode}
+                  options={modesReglement.map((m) => ({ label: m.label, value: m.code }))}
+                />
+              </FormRow2>
+              <View className="mt-3 flex-row gap-2">
+                <View className="flex-1">
+                  <Button title="Annuler" variant="ghost" block disabled={busy} onPress={cancelDepense} />
+                </View>
+                <View className="flex-1">
+                  <Button title={busy ? "Enregistrement…" : "Enregistrer"} block disabled={busy} onPress={handleAddDepense} />
+                </View>
+              </View>
+            </Card>
+          ) : (
+            <Button title="+ Ajouter une dépense" variant="outline" block className="mt-2.5" onPress={() => setShowDepForm(true)} />
+          )}
 
           <Card className="mt-3">
             <BilanRow first>

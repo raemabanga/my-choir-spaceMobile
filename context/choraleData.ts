@@ -14,8 +14,10 @@ import {
   membreRepository,
   paiementRepository,
   parametresRepository,
+  seanceRepository,
   singleton,
   statutaireRepository,
+  type EvenementData,
   type PaiementData,
 } from "../lib/offline/entities"
 import type { OfflineRecord } from "../lib/offline"
@@ -78,15 +80,25 @@ export function parId<T extends { id: number; localId?: string }>(liste: T[], id
 }
 
 /**
- * Paiements ou dépenses rattachés à un événement, comme le compte le serveur pour refuser sa
- * suppression (409) : paiements annulés et dépenses rejetées compris.
+ * Paiements, dépenses ou feuille de présence rattachés à un événement, comme le compte le serveur
+ * pour refuser sa suppression (409) : paiements annulés et dépenses rejetées compris. Feuille de
+ * présence : connue du serveur (`aFeuillePresence`, vrai aussi pour le trésorier, qui ne télécharge
+ * pas les séances) ou faite sur le téléphone et pas encore envoyée. Contrairement à un paiement
+ * annulé, une feuille supprimée ne bloque plus le serveur une fois sa suppression acceptée.
  */
-export function evenementARattachements(evenement: { localId: string; serverId: string | null }) {
+export function evenementARattachements(evenement: OfflineRecord<EvenementData>) {
   const vise = (d: { evenementId: number | null; evenementLocalId?: string | null }) =>
     (evenement.serverId != null && d.evenementId === Number(evenement.serverId)) || d.evenementLocalId === evenement.localId
+  const feuillesSupprimees = seanceRepository.getDeleted().filter((s) => s.data.type === "EVENEMENT" && vise(s.data))
+  // Suppression de la feuille déjà acceptée par le serveur : `aFeuillePresence` (téléchargé avant) est périmé.
+  const feuilleSupprimeeEnvoyee = feuillesSupprimees.some((s) => s.syncStatus === "synced")
   return (
+    (evenement.data.aFeuillePresence === true && !feuilleSupprimeeEnvoyee) ||
     [...paiementRepository.getAll(), ...paiementRepository.getDeleted()].some((p) => vise(p.data)) ||
-    [...depenseRepository.getAll(), ...depenseRepository.getDeleted()].some((d) => vise(d.data))
+    [...depenseRepository.getAll(), ...depenseRepository.getDeleted()].some((d) => vise(d.data)) ||
+    seanceRepository.getAll().some((s) => s.data.type === "EVENEMENT" && vise(s.data)) ||
+    // Suppression de la feuille pas encore envoyée : le serveur refuserait encore.
+    feuillesSupprimees.some((s) => s.syncStatus !== "synced")
   )
 }
 
@@ -182,6 +194,7 @@ export function lireDonneesChorale(membreConnecte: number, annee: number): Chora
       depenses: depensesParEvenement.get(id) ?? [],
       contributions: contributions.get(id) ?? {},
       inscriptionsOuvertes: r.data.inscriptionsOuvertes ?? false,
+      aFeuillePresence: r.data.aFeuillePresence ?? false,
       inscrits: inscriptionsParEvenement.get(id) ?? [],
       inscrit: (inscriptionsParEvenement.get(id) ?? []).some((x) => x.id === membreConnecte),
     }

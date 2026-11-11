@@ -130,7 +130,7 @@ interface AppContextValue {
   cancelPayment: (receiptLocalId: string, motif: string) => Promise<void>
   createEvent: (input: EventInput) => Promise<void>
   updateEvent: (eventId: number, input: EventInput) => Promise<void>
-  /** Refusé si des paiements ou des dépenses sont rattachés à l'événement (règle du serveur). */
+  /** Refusé si des paiements, des dépenses ou une feuille de présence sont rattachés à l'événement (règle du serveur). */
   deleteEvent: (eventId: number) => Promise<void>
   /**
    * Inscrit (`inscrire` vrai) ou désinscrit le membre connecté. L'intention vient de l'écran :
@@ -481,7 +481,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const updateEvent = useCallback(
     async (eventId: number, input: EventInput) => {
       const { record } = evenementLocal(eventId)
-      evenementRepository.update(record.localId, toEvenementData(input))
+      // Le formulaire ne connaît pas `aFeuillePresence` (venu du serveur) : on le garde.
+      evenementRepository.update(record.localId, { ...toEvenementData(input), aFeuillePresence: record.data.aFeuillePresence })
     },
     [evenementLocal]
   )
@@ -489,9 +490,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const deleteEvent = useCallback(
     async (eventId: number) => {
       const { record } = evenementLocal(eventId)
-      // Même règle que le serveur (409) : paiements (même annulés) ou dépenses (même rejetées) rattachés.
+      // Même règle que le serveur (409) : paiements, dépenses ou feuille de présence rattachés.
       if (evenementARattachements(record))
-        throw refus("Des paiements ou des dépenses sont rattachés à cet événement : il ne peut pas être supprimé.")
+        throw refus("Des paiements, des dépenses ou des présences sont rattachés à cet événement : il ne peut pas être supprimé.")
       evenementRepository.remove(record.localId)
     },
     [evenementLocal]

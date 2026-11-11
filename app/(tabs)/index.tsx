@@ -3,7 +3,7 @@
 // Style en classes NativeWind (tailwind.config.js).
 import { router, useFocusEffect } from "expo-router"
 import { StatusBar } from "expo-status-bar"
-import { CalendarDays, Music, Wallet, type LucideIcon } from "lucide-react-native"
+import { CalendarDays, ClipboardCheck, Music, Wallet, type LucideIcon } from "lucide-react-native"
 import { useCallback, useEffect, useState } from "react"
 import { Image, Text, View, type ImageSourcePropType } from "react-native"
 
@@ -248,7 +248,12 @@ export default function HomeScreen() {
       {/* Raccourcis */}
       <View className="mt-4 flex-row gap-3">
         <QuickTile icon={Wallet} label="Cotisations" onPress={() => router.push("/(tabs)/cotisations")} />
-        <QuickTile icon={CalendarDays} label="Événements" onPress={() => router.push("/(tabs)/evenements")} />
+        {/* Rôles « présences » : faire l'appel ; les événements restent dans la barre d'onglets. */}
+        {can("presences") ? (
+          <QuickTile icon={ClipboardCheck} label="Présence" onPress={() => router.push("/presences")} />
+        ) : (
+          <QuickTile icon={CalendarDays} label="Événements" onPress={() => router.push("/(tabs)/evenements")} />
+        )}
         <QuickTile icon={Music} label="Répertoire" onPress={() => router.push("/(tabs)/chants")} />
       </View>
 
