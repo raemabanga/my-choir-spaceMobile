@@ -1,4 +1,4 @@
-// Écran « Présences » : faire l'appel d'une répétition ou d'un événement, et historique des feuilles.
+// Écran « Présences » : faire l'appel d'une répétition, d'un culte (plusieurs par jour) ou d'un événement, et historique des feuilles.
 // Équivalent mobile du module Présences du portail web (sans les statistiques). Marche hors ligne :
 // la feuille est enregistrée sur le téléphone puis envoyée en entier (PUT /espace/presences/feuille).
 
@@ -11,7 +11,17 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { BackHeader } from "../components/AppHeader"
 import { DateField } from "../components/DateField"
 import { Container } from "../components/layout"
-import { ExcuseSheet, NouvelAppelSheet, seanceDeEvenement, seancePrioritaire, totauxSeance } from "../components/sheets/PresenceSheets"
+import {
+  ChoixCulte,
+  ExcuseSheet,
+  NouvelAppelSheet,
+  premierCulteLibre,
+  seanceDeEvenement,
+  seanceDuJour,
+  seancePrioritaire,
+  totauxSeance,
+  type CleAppel,
+} from "../components/sheets/PresenceSheets"
 import { OfflineBanner, RecordSyncBadge } from "../components/sync"
 import {
   Avatar,
@@ -37,20 +47,28 @@ import { parId } from "../context/choraleData"
 import { useSheet } from "../context/SheetContext"
 import { useToast } from "../context/ToastContext"
 import { useOfflineCollection } from "../hooks/offline"
-import type { StatutPresence, TypeSeance } from "../lib/api"
+import { NUMERO_CULTE_MAX, nomCulte, type StatutPresence, type TypeSeance } from "../lib/api"
 import { formatDateLong, formatDateShort, localISODate, MONTHS, parseLocalISODate, todayLocalISO } from "../lib/format"
 import { syncManager, type OfflineRecord } from "../lib/offline"
-import { evenementRepository, presenceMembreRepository, seanceRepository, type SeanceData } from "../lib/offline/entities"
+import { evenementRepository, numeroSeance, presenceMembreRepository, seanceRepository, type SeanceData } from "../lib/offline/entities"
 import type { Evenement } from "../types"
 
 /** « liste » : les séances (écran d’arrivée) ; « appel » : la feuille d’une séance. */
 type Vue = "appel" | "liste"
 type Filtre = "tous" | "presents" | "excuses" | "absents"
-type FiltreHistorique = "toutes" | "repetitions" | "evenements"
+type FiltreHistorique = "toutes" | "repetitions" | "cultes" | "evenements"
+
+const TYPE_FILTRE: Record<Exclude<FiltreHistorique, "toutes">, TypeSeance> = {
+  repetitions: "REPETITION",
+  cultes: "CULTE",
+  evenements: "EVENEMENT",
+}
 type Ligne = { statut: StatutPresence; motif: string | null }
 type Brouillon = Map<number, Ligne>
-/** Clé d'une feuille : la répétition d'un jour, ou un événement (sa date n'en fait pas partie). */
-type Cle = { type: "REPETITION"; date: string } | { type: "EVENEMENT"; eventId: number | null }
+/** Clé d'une feuille : la répétition d'un jour, un culte (jour et numéro), ou un événement (sa date n'en fait pas partie). */
+type Cle = Exclude<CleAppel, { type: "EVENEMENT" }> | { type: "EVENEMENT"; eventId: number | null }
+/** Clé de recherche d'une feuille (événement déjà retrouvé). */
+type Recherche = Exclude<CleAppel, { type: "EVENEMENT" }> | { type: "EVENEMENT"; ev: Evenement | undefined }
 
 const ABSENT: Ligne = { statut: "ABSENT", motif: null }
 
@@ -74,13 +92,15 @@ const LIBELLE_STATUT: Record<StatutPresence, string> = { PRESENT: "présent", EX
 const refEvenement = (ev: Evenement) => ({ serverId: ev.id > 0 ? ev.id : null, localId: ev.localId ?? null })
 
 /** Feuille du téléphone correspondant à une clé (null : appel pas encore fait). */
-function trouverSeance(seances: OfflineRecord<SeanceData>[], cle: { type: "REPETITION"; date: string } | { type: "EVENEMENT"; ev: Evenement | undefined }) {
+function trouverSeance(seances: OfflineRecord<SeanceData>[], cle: Recherche) {
   if (cle.type === "EVENEMENT") return cle.ev ? seanceDeEvenement(seances, refEvenement(cle.ev)) : null
-  let trouvee: OfflineRecord<SeanceData> | null = null
-  for (const s of seances) {
-    if (s.data.type === "REPETITION" && s.data.date === cle.date) trouvee = trouvee ? seancePrioritaire(trouvee, s) : s
-  }
-  return trouvee
+  return seanceDuJour(seances, cle)
+}
+
+/** Clé de recherche d'une clé d'écran (l'événement est retrouvé par son identifiant). */
+function versRecherche(cle: Cle, events: Evenement[]): Recherche {
+  if (cle.type !== "EVENEMENT") return cle
+  return { type: "EVENEMENT", ev: cle.eventId != null ? parId(events, cle.eventId) : undefined }
 }
 
 /** Jour d'un événement pour sa feuille : jamais dans le futur (l'API refuserait l'envoi). */
@@ -103,7 +123,7 @@ export default function PresencesScreen() {
   const { openSheet } = useSheet()
   const { toast } = useToast()
   const insets = useSafeAreaInsets()
-  const params = useLocalSearchParams<{ vue?: string; type?: string; date?: string; evenementId?: string }>()
+  const params = useLocalSearchParams<{ vue?: string; type?: string; date?: string; numero?: string; evenementId?: string }>()
   const autorise = can("presences")
 
   const [vue, setVue] = useState<Vue>(params.vue === "appel" ? "appel" : "liste")
@@ -128,10 +148,16 @@ export default function PresencesScreen() {
 
   /* ------------------------------ Feuille en cours ------------------------------ */
 
-  const [type, setType] = useState<TypeSeance>(params.type === "evenement" ? "EVENEMENT" : "REPETITION")
-  const [dateRepetition, setDateRepetition] = useState(() =>
+  const [type, setType] = useState<TypeSeance>(params.type === "evenement" ? "EVENEMENT" : params.type === "culte" ? "CULTE" : "REPETITION")
+  /** Jour de la répétition ou du culte (partagé : passer de l'un à l'autre garde le jour). */
+  const [dateJour, setDateJour] = useState(() =>
     params.date && /^\d{4}-\d{2}-\d{2}$/.test(params.date) ? params.date : todayLocalISO()
   )
+  /** Numéro du culte dans la journée (1 à 5). */
+  const [numero, setNumero] = useState(() => {
+    const n = Number(params.numero)
+    return Number.isInteger(n) && n >= 1 && n <= NUMERO_CULTE_MAX ? n : 1
+  })
   const [eventId, setEventId] = useState<number | null>(() => (evenementDemande ?? evenementParDefaut)?.id ?? null)
   const [dateEvenement, setDateEvenement] = useState(todayLocalISO)
   const [titre, setTitre] = useState("")
@@ -142,12 +168,13 @@ export default function PresencesScreen() {
   const [filtreHistorique, setFiltreHistorique] = useState<FiltreHistorique>("toutes")
 
   const ev = eventId != null ? parId(events, eventId) : undefined
-  const date = type === "REPETITION" ? dateRepetition : dateEvenement
-
-  const seanceExistante = useMemo(
-    () => trouverSeance(seances, type === "REPETITION" ? { type, date: dateRepetition } : { type, ev }),
-    [seances, type, dateRepetition, ev]
+  const date = type === "EVENEMENT" ? dateEvenement : dateJour
+  const cleCourante = useMemo<Recherche>(
+    () => (type === "EVENEMENT" ? { type, ev } : type === "CULTE" ? { type, date: dateJour, numero } : { type, date: dateJour }),
+    [type, ev, dateJour, numero]
   )
+
+  const seanceExistante = useMemo(() => trouverSeance(seances, cleCourante), [seances, cleCourante])
 
   /** Brouillon, intitulé et date repartent de la feuille enregistrée (ou d'une feuille vierge). */
   const initialiser = useCallback((seance: OfflineRecord<SeanceData> | null, evenement: Evenement | undefined) => {
@@ -164,14 +191,18 @@ export default function PresencesScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seanceExistante])
 
-  /** Change de feuille (type, date d'une répétition, événement) et repart de sa version enregistrée. */
+  /** Change de feuille (type, jour d'une répétition ou d'un culte, numéro du culte, événement) et repart de sa version enregistrée. */
   const appliquer = useCallback(
     (cle: Cle) => {
-      const evenement = cle.type === "EVENEMENT" && cle.eventId != null ? parId(events, cle.eventId) : undefined
+      const recherche = versRecherche(cle, events)
+      const evenement = recherche.type === "EVENEMENT" ? recherche.ev : undefined
       setType(cle.type)
-      if (cle.type === "REPETITION") setDateRepetition(cle.date)
-      else setEventId(cle.eventId)
-      initialiser(trouverSeance(seances, cle.type === "REPETITION" ? cle : { type: "EVENEMENT", ev: evenement }), evenement)
+      if (cle.type === "EVENEMENT") setEventId(cle.eventId)
+      else {
+        setDateJour(cle.date)
+        if (cle.type === "CULTE") setNumero(cle.numero)
+      }
+      initialiser(trouverSeance(seances, recherche), evenement)
     },
     [events, seances, initialiser]
   )
@@ -304,7 +335,7 @@ export default function PresencesScreen() {
 
   /* ------------------------------ Enregistrer / supprimer ------------------------------ */
 
-  const peutEnregistrer = (type === "REPETITION" || !!ev) && roster.length > 0 && (modifie || !seanceExistante)
+  const peutEnregistrer = (type !== "EVENEMENT" || !!ev) && roster.length > 0 && (modifie || !seanceExistante)
 
   const enregistrer = () => {
     try {
@@ -312,11 +343,13 @@ export default function PresencesScreen() {
       if (date > todayLocalISO()) throw new Error("La date de la séance ne peut pas être dans le futur.")
       // Relu dans SQLite (pas dans la liste affichée, rafraîchie un instant plus tard) : un double
       // appui sur « Enregistrer » ne crée jamais deux feuilles.
-      const existante = trouverSeance(seanceRepository.getAll(), type === "REPETITION" ? { type, date: dateRepetition } : { type, ev })
+      const existante = trouverSeance(seanceRepository.getAll(), cleCourante)
       const data: SeanceData = {
         type,
         date,
-        titre: type === "REPETITION" ? titre.trim() || null : null,
+        // Intitulé : répétition et culte ; numéro : culte seulement.
+        titre: type !== "EVENEMENT" ? titre.trim() || null : null,
+        numero: type === "CULTE" ? numero : null,
         ...(type === "EVENEMENT" && ev ? lienEvenement(ev) : { evenementId: null, evenementLocalId: null }),
         evenementTitre: type === "EVENEMENT" ? (ev?.titre ?? null) : null,
         presences: roster.map((m) => {
@@ -342,7 +375,8 @@ export default function PresencesScreen() {
   const supprimer = () => {
     if (!seanceExistante) return
     const localId = seanceExistante.localId
-    Alert.alert("Supprimer la feuille ?", `La feuille de présence du ${formatDateLong(date)} sera supprimée.`, [
+    const quoi = type === "CULTE" ? `du ${titre.trim() || nomCulte(numero)} du` : "de présence du"
+    Alert.alert("Supprimer la feuille ?", `La feuille ${quoi} ${formatDateLong(date)} sera supprimée.`, [
       { text: "Annuler", style: "cancel" },
       {
         text: "Supprimer",
@@ -369,7 +403,8 @@ export default function PresencesScreen() {
     const ordre: string[] = []
     for (const s of historique) {
       let cle = `REPETITION:${s.data.date}`
-      if (s.data.type === "EVENEMENT") {
+      if (s.data.type === "CULTE") cle = `CULTE:${s.data.date}:${numeroSeance(s.data)}`
+      else if (s.data.type === "EVENEMENT") {
         const serveur =
           s.data.evenementId ?? (s.data.evenementLocalId ? evenementRepository.getByLocalId(s.data.evenementLocalId)?.serverId : null)
         cle = serveur != null ? `EVENEMENT:${serveur}` : `EVENEMENT:local:${s.data.evenementLocalId ?? s.localId}`
@@ -384,11 +419,10 @@ export default function PresencesScreen() {
   const compteHistorique = {
     toutes: feuilles.length,
     repetitions: feuilles.filter((s) => s.data.type === "REPETITION").length,
+    cultes: feuilles.filter((s) => s.data.type === "CULTE").length,
     evenements: feuilles.filter((s) => s.data.type === "EVENEMENT").length,
   }
-  const feuillesVisibles = feuilles.filter(
-    (s) => filtreHistorique === "toutes" || (filtreHistorique === "repetitions") === (s.data.type === "REPETITION")
-  )
+  const feuillesVisibles = feuilles.filter((s) => filtreHistorique === "toutes" || s.data.type === TYPE_FILTRE[filtreHistorique])
 
   const evenementDeSeance = (s: OfflineRecord<SeanceData>) =>
     events.find(
@@ -396,12 +430,21 @@ export default function PresencesScreen() {
         (s.data.evenementId != null && e.id === s.data.evenementId) || (!!s.data.evenementLocalId && e.localId === s.data.evenementLocalId)
     )
 
+  /** Libellé d'une feuille, comme le `libelle` de l'API (culte : intitulé, sinon « 2e culte »). */
   const libelleSeance = (s: OfflineRecord<SeanceData>) =>
-    s.data.type === "REPETITION" ? (s.data.titre ?? "Répétition") : (s.data.evenementTitre ?? "Événement")
+    s.data.type === "REPETITION"
+      ? (s.data.titre ?? "Répétition")
+      : s.data.type === "CULTE"
+        ? (s.data.titre ?? nomCulte(numeroSeance(s.data)))
+        : (s.data.evenementTitre ?? "Événement")
 
   const ouvrirFeuille = (s: OfflineRecord<SeanceData>) => {
     if (s.data.type === "REPETITION") {
       changerCle({ type: "REPETITION", date: s.data.date }, () => setVue("appel"))
+      return
+    }
+    if (s.data.type === "CULTE") {
+      changerCle({ type: "CULTE", date: s.data.date, numero: numeroSeance(s.data) ?? 1 }, () => setVue("appel"))
       return
     }
     const evenement = evenementDeSeance(s)
@@ -418,9 +461,7 @@ export default function PresencesScreen() {
       <NouvelAppelSheet
         evenements={evenementsAppel.map((e) => ({ value: e.id, label: e.date ? `${e.titre} · ${formatDateShort(e.date)}` : e.titre }))}
         aujourdhui={todayLocalISO()}
-        existe={(cle) =>
-          !!trouverSeance(seances, cle.type === "REPETITION" ? cle : { type: "EVENEMENT", ev: parId(events, cle.eventId) })
-        }
+        existe={(cle) => !!trouverSeance(seances, versRecherche(cle, events))}
         onCommencer={(cle) => {
           setRecherche("")
           setFiltre("tous")
@@ -466,7 +507,21 @@ export default function PresencesScreen() {
     return liste.map((e) => ({ value: e.id, label: e.date ? `${e.titre} · ${formatDateShort(e.date)}` : e.titre }))
   }, [evenementsAppel, ev])
 
-  const feuillePrete = type === "REPETITION" || !!ev
+  const feuillePrete = type !== "EVENEMENT" || !!ev
+
+  /** Champ « Intitulé » des répétitions et des cultes. */
+  const champIntitule = (placeholder: string) => (
+    <Field
+      label="Intitulé (facultatif)"
+      placeholder={placeholder}
+      maxLength={80}
+      value={titre}
+      onChangeText={(t) => {
+        setTitre(t)
+        setModifie(true)
+      }}
+    />
+  )
   // Pas de barre sans feuille à enregistrer (aucun événement choisi).
   const barreVisible = autorise && vue === "appel" && feuillePrete
 
@@ -499,14 +554,26 @@ export default function PresencesScreen() {
 
               {vue === "appel" ? (
                 <>
-                  {/* Séance : répétition du jour choisi, ou événement. */}
+                  {/* Séance : répétition du jour choisi, culte (jour et numéro), ou événement. */}
                   <Card>
                     <CardTitle>Séance</CardTitle>
                     <ChipsRow className="mb-0 mt-1.5">
                       <Chip
                         label="Répétition"
                         active={type === "REPETITION"}
-                        onPress={() => type !== "REPETITION" && changerCle({ type: "REPETITION", date: dateRepetition })}
+                        onPress={() => type !== "REPETITION" && changerCle({ type: "REPETITION", date: dateJour })}
+                      />
+                      <Chip
+                        label="Culte"
+                        active={type === "CULTE"}
+                        onPress={() =>
+                          type !== "CULTE" &&
+                          changerCle({
+                            type: "CULTE",
+                            date: dateJour,
+                            numero: premierCulteLibre(dateJour, (c) => !!trouverSeance(seances, versRecherche(c, events))),
+                          })
+                        }
                       />
                       <Chip
                         label="Événement"
@@ -518,23 +585,28 @@ export default function PresencesScreen() {
                       <>
                         <DateField
                           label="Date"
-                          value={parseLocalISODate(dateRepetition)}
+                          value={parseLocalISODate(dateJour)}
                           onChange={(d) => {
                             const jour = localISODate(d)
-                            if (jour !== dateRepetition) changerCle({ type: "REPETITION", date: jour })
+                            if (jour !== dateJour) changerCle({ type: "REPETITION", date: jour })
                           }}
                           maximumDate={new Date()}
                         />
-                        <Field
-                          label="Intitulé (facultatif)"
-                          placeholder="Ex. Répétition générale"
-                          maxLength={80}
-                          value={titre}
-                          onChangeText={(t) => {
-                            setTitre(t)
-                            setModifie(true)
+                        {champIntitule("Ex. Répétition générale")}
+                      </>
+                    ) : type === "CULTE" ? (
+                      <>
+                        <DateField
+                          label="Date du culte"
+                          value={parseLocalISODate(dateJour)}
+                          onChange={(d) => {
+                            const jour = localISODate(d)
+                            if (jour !== dateJour) changerCle({ type: "CULTE", date: jour, numero })
                           }}
+                          maximumDate={new Date()}
                         />
+                        <ChoixCulte numero={numero} onChange={(n) => changerCle({ type: "CULTE", date: dateJour, numero: n })} />
+                        {champIntitule("Ex. Culte de 7 h")}
                       </>
                     ) : evenementsAppel.length === 0 && !ev ? (
                       <EmptyState icon={CalendarDays} title="Aucun événement" subtitle="Créez d'abord l'événement, puis faites l'appel." />
@@ -647,6 +719,7 @@ export default function PresencesScreen() {
                       active={filtreHistorique === "repetitions"}
                       onPress={() => setFiltreHistorique("repetitions")}
                     />
+                    <Chip label={`Cultes ${compteHistorique.cultes}`} active={filtreHistorique === "cultes"} onPress={() => setFiltreHistorique("cultes")} />
                     <Chip
                       label={`Événements ${compteHistorique.evenements}`}
                       active={filtreHistorique === "evenements"}
@@ -654,7 +727,7 @@ export default function PresencesScreen() {
                     />
                   </ChipsRow>
                   {feuillesVisibles.length === 0 ? (
-                    <EmptyState icon={ClipboardCheck} title="Aucune feuille" subtitle="Touchez « Nouvel appel » pour faire l'appel d'une répétition ou d'un événement." />
+                    <EmptyState icon={ClipboardCheck} title="Aucune feuille" subtitle="Touchez « Nouvel appel » pour faire l'appel d'une répétition, d'un culte ou d'un événement." />
                   ) : (
                     <Card className="py-1">
                       {feuillesVisibles.map((s, i) => (

@@ -10,7 +10,7 @@ import { colors } from "../../constants/theme"
 import { useApp } from "../../context/AppContext"
 import { useSheet } from "../../context/SheetContext"
 import { useOfflineCollection } from "../../hooks/offline"
-import type { CategorieAssiduite, StatutPresence } from "../../lib/api"
+import { LIBELLE_TYPE_SEANCE, type CategorieAssiduite, type StatutPresence } from "../../lib/api"
 import { fmt, formatDateShort } from "../../lib/format"
 import { mesPresencesRepository } from "../../lib/offline/entities"
 
@@ -97,7 +97,7 @@ export default function ProfilScreen() {
                 key={s.seanceId}
                 last={i === Math.min(assiduite.dernieres.length, 3) - 1}
                 title={s.libelle}
-                subtitle={formatDateShort(s.date)}
+                subtitle={`${LIBELLE_TYPE_SEANCE[s.type] ?? "Séance"} · ${formatDateShort(s.date)}`}
                 right={<Pill variant={STATUT[s.statut].variant}>{STATUT[s.statut].label}</Pill>}
               />
             ))}
