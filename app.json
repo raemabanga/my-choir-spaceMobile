@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "harmonix",
+    "name": "Ma Chorale",
     "slug": "my-choir-spaceMobile",
     "version": "1.0.0",
     "scheme": "harmonix",
@@ -15,7 +15,7 @@
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#023859"
       },
       "predictiveBackGestureEnabled": false,
       "permissions": [
@@ -43,6 +43,7 @@
         "expo-splash-screen",
         {
           "image": "./assets/splash-icon.png",
+          "imageWidth": 240,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }

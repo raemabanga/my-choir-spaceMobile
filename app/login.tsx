@@ -61,8 +61,8 @@ export default function LoginScreen() {
             <NavyCircles />
             <View className="w-full max-w-[460px] self-center">
               <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" className="flex-row items-center gap-3">
-                <Image source={require("../assets/harmonix-icon.png")} className="h-11 w-11 rounded-tile bg-paper" resizeMode="contain" />
-                <Text className="font-sans-semibold text-[22px] tracking-[-0.4px] text-paper">Harmonix</Text>
+                <Image source={require("../assets/machorale-icon.png")} className="h-11 w-11 rounded-tile bg-paper" resizeMode="contain" />
+                <Text className="font-sans-semibold text-[22px] tracking-[-0.4px] text-paper">Ma Chorale</Text>
               </View>
               {/* Accroche en gros, puis la suite de la phrase en plus petit en dessous. */}
               <Text accessibilityRole="header" className="mt-8 font-sans-semibold text-[26px] leading-[32px] tracking-[-0.5px] text-paper">
