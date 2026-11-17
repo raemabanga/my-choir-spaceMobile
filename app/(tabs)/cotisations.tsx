@@ -1,14 +1,15 @@
-import { ChevronLeft, ChevronRight } from "lucide-react-native"
-import { useState } from "react"
+import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react-native"
+import { useMemo, useState } from "react"
 import { Pressable, Text, View } from "react-native"
 
 import { Screen } from "../../components/layout"
 import { EventCotisationSheet, PaymentConfirmSheet } from "../../components/sheets/CotisationSheets"
-import { Card, CardTitle, Chip, ChipsRow, cx, Muted, Pill, ProgressBar, RowBetween, Seal, Select } from "../../components/ui"
+import { Card, CardTitle, Chip, ChipsRow, cx, EmptyState, Muted, Pagination, Pill, ProgressBar, RowBetween, SearchBar, Seal, Select } from "../../components/ui"
 import { colors, shadows } from "../../constants/theme"
 import { useApp } from "../../context/AppContext"
 import { useSheet } from "../../context/SheetContext"
-import { fmt, MONTHS } from "../../lib/format"
+import { usePagination } from "../../hooks/usePagination"
+import { correspondRecherche, fmt, MONTHS } from "../../lib/format"
 
 /** Montant secondaire en Geist Mono (12,5px, couleur muted) ; pas via <Numeric> pour éviter un conflit text-[13px]/text-ink. */
 const MUTED_NUM = "font-sans-medium text-[12.5px] tabular-nums text-ink-light"
@@ -32,6 +33,8 @@ function YearArrow({ direction, target, onPress }: { direction: "prev" | "next";
   )
 }
 
+type FiltreEv = "tous" | "regles" | "nonRegles"
+
 export default function CotisationsScreen() {
   const { currentUser, chorists, statutaireParAnnee, nonDuParAnnee, anneesStatutaire, events, can, mensualite, annee: anneeCourante } = useApp()
   const { openSheet } = useSheet()
@@ -39,6 +42,30 @@ export default function CotisationsScreen() {
   const [viewChoristId, setViewChoristId] = useState(currentUser?.id ?? chorists[0].id)
   // Exercice affiché (null : année en cours, qui suit le passage au 1er janvier). Comme sur le web.
   const [anneeChoisie, setAnneeChoisie] = useState<number | null>(null)
+  // Onglet événementiel : recherche sur l'événement et filtre réglé / non réglé.
+  const [rechercheEv, setRechercheEv] = useState("")
+  const [filtreEv, setFiltreEv] = useState<FiltreEv>("tous")
+
+  const canViewAll = can("cotisations")
+  const viewId = canViewAll ? viewChoristId : (currentUser?.id ?? viewChoristId)
+  /** Événements de l'onglet « Événementielle », avec le montant réglé par le choriste affiché. */
+  const lignesEv = useMemo(
+    () =>
+      events.map((ev) => {
+        const paidAmt = ev.contributions[viewId] || 0
+        return { ev, paidAmt, done: paidAmt >= ev.cotisationMontant }
+      }),
+    [events, viewId]
+  )
+  const evVisibles = useMemo(
+    () =>
+      lignesEv.filter(
+        (l) =>
+          (filtreEv === "tous" || (filtreEv === "regles" ? l.done : !l.done)) && correspondRecherche(rechercheEv, l.ev.titre, l.ev.type)
+      ),
+    [lignesEv, filtreEv, rechercheEv]
+  )
+  const paginationEv = usePagination(evVisibles, 20, [rechercheEv, filtreEv, viewId])
 
   if (!currentUser) return null
 
@@ -48,8 +75,6 @@ export default function CotisationsScreen() {
   const anneeSuiv = idx >= 0 && idx < anneesStatutaire.length - 1 ? anneesStatutaire[idx + 1] : null
   const choisir = (a: number) => setAnneeChoisie(a === anneeCourante ? null : a)
 
-  const canViewAll = can("cotisations")
-  const viewId = canViewAll ? viewChoristId : currentUser.id
   const viewChorist = chorists.find((c) => c.id === viewId) ?? currentUser
   const canPay = can("paiements")
   const paid = statutaireParAnnee[annee]?.[viewId] ?? Array<boolean>(12).fill(false)
@@ -152,30 +177,52 @@ export default function CotisationsScreen() {
           </Muted>
         </>
       ) : (
-        events.map((ev) => {
-          const paidAmt = ev.contributions[viewId] || 0
-          // Cotisation à 0 (événement sans collecte) : considérée comme réglée.
-          const pct = ev.cotisationMontant > 0 ? Math.min(100, Math.round((paidAmt / ev.cotisationMontant) * 100)) : 100
-          const done = paidAmt >= ev.cotisationMontant
-          return (
-            <Card
-              key={ev.id}
-              accessibilityLabel={`${ev.titre}, ${done ? "réglé" : pct + " %"}`}
-              onPress={() => openSheet(<EventCotisationSheet eventId={ev.id} chorishId={viewId} />)}
-            >
-              <RowBetween>
-                <View className="min-w-0 flex-1">
-                  <CardTitle>{ev.titre}</CardTitle>
-                </View>
-                {done ? <Pill variant="green">Réglé</Pill> : <Pill>{`${pct}%`}</Pill>}
-              </RowBetween>
-              <ProgressBar percent={pct} />
-              <Muted>
-                <Text className={MUTED_NUM}>{fmt(paidAmt)}</Text> / <Text className={MUTED_NUM}>{fmt(ev.cotisationMontant)}</Text>
-              </Muted>
-            </Card>
-          )
-        })
+        <>
+          {events.length > 0 ? (
+            <>
+              <SearchBar value={rechercheEv} onChangeText={setRechercheEv} placeholder="Rechercher un événement" autoCorrect={false} />
+              <ChipsRow>
+                <Chip label={`Tous (${lignesEv.length})`} active={filtreEv === "tous"} onPress={() => setFiltreEv("tous")} />
+                <Chip label={`Réglés (${lignesEv.filter((l) => l.done).length})`} active={filtreEv === "regles"} onPress={() => setFiltreEv("regles")} />
+                <Chip
+                  label={`Non réglés (${lignesEv.filter((l) => !l.done).length})`}
+                  active={filtreEv === "nonRegles"}
+                  onPress={() => setFiltreEv("nonRegles")}
+                />
+              </ChipsRow>
+            </>
+          ) : null}
+          {evVisibles.length === 0 ? (
+            <EmptyState
+              icon={CalendarDays}
+              title="Aucun événement"
+              subtitle={events.length === 0 ? "Aucune cotisation événementielle pour le moment." : "Modifiez la recherche ou le filtre."}
+            />
+          ) : null}
+          {paginationEv.pageItems.map(({ ev, paidAmt, done }) => {
+            // Cotisation à 0 (événement sans collecte) : considérée comme réglée.
+            const pct = ev.cotisationMontant > 0 ? Math.min(100, Math.round((paidAmt / ev.cotisationMontant) * 100)) : 100
+            return (
+              <Card
+                key={ev.id}
+                accessibilityLabel={`${ev.titre}, ${done ? "réglé" : pct + " %"}`}
+                onPress={() => openSheet(<EventCotisationSheet eventId={ev.id} chorishId={viewId} />)}
+              >
+                <RowBetween>
+                  <View className="min-w-0 flex-1">
+                    <CardTitle>{ev.titre}</CardTitle>
+                  </View>
+                  {done ? <Pill variant="green">Réglé</Pill> : <Pill>{`${pct}%`}</Pill>}
+                </RowBetween>
+                <ProgressBar percent={pct} />
+                <Muted>
+                  <Text className={MUTED_NUM}>{fmt(paidAmt)}</Text> / <Text className={MUTED_NUM}>{fmt(ev.cotisationMontant)}</Text>
+                </Muted>
+              </Card>
+            )
+          })}
+          <Pagination {...paginationEv} />
+        </>
       )}
     </Screen>
   )

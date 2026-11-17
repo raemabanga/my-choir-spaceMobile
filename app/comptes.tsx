@@ -8,17 +8,37 @@ import { KeyboardAwareScrollView } from "../components/keyboard"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { BackHeader } from "../components/AppHeader"
 import { Container } from "../components/layout"
-import { CompteDetailSheet, CompteFormSheet, comptesStore, useComptes, useDroitsCompte } from "../components/sheets/CompteSheets"
-import { Avatar, Button, Card, Chevron, Chip, ChipsRow, EmptyState, Muted, Pill, SearchBar } from "../components/ui"
+import {
+  CompteDetailSheet,
+  CompteFormSheet,
+  comptesStore,
+  ETAT_COMPTE,
+  etatCompte,
+  PastilleEtatCompte,
+  useComptes,
+  useDroitsCompte,
+  type EtatCompte,
+} from "../components/sheets/CompteSheets"
+import { Avatar, Button, Card, Chevron, Chip, ChipsRow, EmptyState, Muted, Pagination, Pill, SearchBar, Select } from "../components/ui"
 import { colors } from "../constants/theme"
 import { useApp } from "../context/AppContext"
 import { useSheet } from "../context/SheetContext"
 import { useSyncSummary } from "../hooks/offline"
+import { usePagination } from "../hooks/usePagination"
 import { type Compte } from "../lib/api"
 import { syncManager } from "../lib/offline"
 import { ROLE_LABEL } from "../lib/roles"
+import type { Role } from "../types"
 
-type Filtre = "tous" | "actifs" | "desactives"
+/** Filtre par état : « tous » ou un état (participation calculée, ou désactivé). */
+type Filtre = "tous" | EtatCompte
+
+const FILTRES: { filtre: EtatCompte; label: string }[] = [
+  { filtre: "ACTIF", label: "Actifs" },
+  { filtre: "A_SURVEILLER", label: "À surveiller" },
+  { filtre: "INACTIF", label: "Inactifs" },
+  { filtre: "DESACTIVE", label: "Désactivés" },
+]
 
 /** Minuscules sans accents, pour la recherche. */
 const plat = (s: string) =>
@@ -29,9 +49,12 @@ const plat = (s: string) =>
 
 /** Carte d'un compte dans la liste. */
 function CompteCard({ compte, estMoi, protege, onPress }: { compte: Compte; estMoi: boolean; protege: boolean; onPress: () => void }) {
-  const desactive = compte.statut !== "actif"
+  const etat = etatCompte(compte)
   return (
-    <Card onPress={onPress} accessibilityLabel={`${compte.nom}${estMoi ? " (vous)" : ""}${desactive ? ", désactivé" : ""}. Ouvrir le détail`}>
+    <Card
+      onPress={onPress}
+      accessibilityLabel={`${compte.nom}${estMoi ? " (vous)" : ""}${etat ? `, ${ETAT_COMPTE[etat].label.toLowerCase()}` : ""}. Ouvrir le détail`}
+    >
       <View className="flex-row items-center gap-3">
         <Avatar id={compte.id} name={compte.nom} size={40} />
         <View className="min-w-0 flex-1">
@@ -44,7 +67,7 @@ function CompteCard({ compte, estMoi, protege, onPress }: { compte: Compte; estM
         <Chevron />
       </View>
       <View className="mt-2.5 flex-row flex-wrap gap-1.5">
-        {desactive ? <Pill variant="burg">Désactivé</Pill> : null}
+        <PastilleEtatCompte compte={compte} />
         {compte.roles.map((r) => (
           <Pill key={r} variant={r === "choriste" ? "default" : "gold"}>
             {ROLE_LABEL[r]}
@@ -78,6 +101,8 @@ export default function ComptesScreen() {
   const [erreur, setErreur] = useState<string | null>(null)
   const [recherche, setRecherche] = useState("")
   const [filtre, setFiltre] = useState<Filtre>("tous")
+  // Rôle filtré ("" : tous les rôles).
+  const [role, setRole] = useState<Role | "">("")
 
   /** Met à jour la copie locale depuis le serveur (sans réseau : la copie du téléphone reste affichée). */
   const charger = useCallback(async () => {
@@ -102,20 +127,33 @@ export default function ComptesScreen() {
   }, [charger])
 
   const compteurs = useMemo(() => {
-    const actifs = comptes.filter((c) => c.statut === "actif").length
-    return { tous: comptes.length, actifs, desactives: comptes.length - actifs }
+    const n: Record<EtatCompte, number> = { ACTIF: 0, A_SURVEILLER: 0, INACTIF: 0, DESACTIVE: 0 }
+    for (const c of comptes) {
+      const etat = etatCompte(c)
+      if (etat) n[etat]++
+    }
+    return n
+  }, [comptes])
+
+  /** Rôles réellement attribués, pour le filtre par rôle. */
+  const rolesPresents = useMemo(() => {
+    const roles = new Set<Role>()
+    for (const c of comptes) for (const r of c.roles) roles.add(r)
+    return [...roles].sort((a, b) => ROLE_LABEL[a].localeCompare(ROLE_LABEL[b], "fr"))
   }, [comptes])
 
   const visibles = useMemo(() => {
     const q = plat(recherche.trim())
     const qChiffres = recherche.replace(/\D/g, "")
     return comptes.filter((c) => {
-      if (filtre === "actifs" && c.statut !== "actif") return false
-      if (filtre === "desactives" && c.statut === "actif") return false
+      if (filtre !== "tous" && etatCompte(c) !== filtre) return false
+      if (role && !c.roles.includes(role)) return false
       if (!q) return true
       return plat(c.nom).includes(q) || plat(c.email).includes(q) || (qChiffres.length > 0 && c.telephone.replace(/\D/g, "").includes(qChiffres))
     })
-  }, [comptes, recherche, filtre])
+  }, [comptes, recherche, filtre, role])
+
+  const pagination = usePagination(visibles, 20, [recherche, filtre, role])
 
   return (
     <SafeAreaView className="flex-1 bg-paper" edges={["top"]}>
@@ -156,10 +194,22 @@ export default function ComptesScreen() {
                 returnKeyType="search"
               />
               <ChipsRow>
-                <Chip label={`Tous (${compteurs.tous})`} active={filtre === "tous"} onPress={() => setFiltre("tous")} />
-                <Chip label={`Actifs (${compteurs.actifs})`} active={filtre === "actifs"} onPress={() => setFiltre("actifs")} />
-                <Chip label={`Désactivés (${compteurs.desactives})`} active={filtre === "desactives"} onPress={() => setFiltre("desactives")} />
+                <Chip label={`Tous (${comptes.length})`} active={filtre === "tous"} onPress={() => setFiltre("tous")} />
+                {FILTRES.map((f) => (
+                  <Chip key={f.filtre} label={`${f.label} (${compteurs[f.filtre]})`} active={filtre === f.filtre} onPress={() => setFiltre(f.filtre)} />
+                ))}
               </ChipsRow>
+              {rolesPresents.length > 1 ? (
+                <View className="-mt-1 mb-3.5">
+                  <Select
+                    first
+                    label="Rôle"
+                    value={role}
+                    onChange={setRole}
+                    options={[{ label: "Tous les rôles", value: "" as Role | "" }, ...rolesPresents.map((r) => ({ label: ROLE_LABEL[r], value: r as Role | "" }))]}
+                  />
+                </View>
+              ) : null}
 
               {erreur ? (
                 <View accessibilityLiveRegion="polite" className="mb-3.5 rounded-card border border-danger bg-danger-bg p-3.5">
@@ -189,18 +239,21 @@ export default function ComptesScreen() {
                   subtitle={comptes.length === 0 ? "Créez le premier compte de la chorale." : "Modifiez la recherche ou le filtre."}
                 />
               ) : (
-                visibles.map((c) => {
-                  const d = droitsSur(c)
-                  return (
-                    <CompteCard
-                      key={c.id}
-                      compte={c}
-                      estMoi={d.estMoi}
-                      protege={d.estAdminProtege}
-                      onPress={() => openSheet(<CompteDetailSheet compteId={c.id} />)}
-                    />
-                  )
-                })
+                <>
+                  {pagination.pageItems.map((c) => {
+                    const d = droitsSur(c)
+                    return (
+                      <CompteCard
+                        key={c.id}
+                        compte={c}
+                        estMoi={d.estMoi}
+                        protege={d.estAdminProtege}
+                        onPress={() => openSheet(<CompteDetailSheet compteId={c.id} />)}
+                      />
+                    )
+                  })}
+                  <Pagination {...pagination} />
+                </>
               )}
             </>
           )}

@@ -1,7 +1,7 @@
 // Bottom sheets Événements — conformes à openEventForm() et openEventSheet() du prototype cantoria-app-mobile-v2.html.
 import { useRouter } from "expo-router"
 import { ClipboardCheck } from "lucide-react-native"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { Pressable, Switch, Text, View } from "react-native"
 import { colors } from "../../constants/theme"
 import { errorMessage, useApp } from "../../context/AppContext"
@@ -11,11 +11,31 @@ import { useToast } from "../../context/ToastContext"
 import { useOfflineCollection } from "../../hooks/offline"
 import type { ModeReglement } from "../../lib/api"
 import { seanceRepository } from "../../lib/offline/entities"
-import { eventBilan, fmt, formatDateShort } from "../../lib/format"
+import { usePagination } from "../../hooks/usePagination"
+import { correspondRecherche, eventBilan, fmt, formatDateShort } from "../../lib/format"
 import type { Evenement } from "../../types"
 import { DateField } from "../DateField"
 import { RecordSyncBadge } from "../sync"
-import { Button, Card, CardTitle, Field, FieldLabel, FormRow2, KeyValue, ListRow, Muted, Pill, ProgressBar, SectionHeader, Select, SheetTitle } from "../ui"
+import {
+  Button,
+  Card,
+  CardTitle,
+  Chip,
+  ChipsRow,
+  Field,
+  FieldLabel,
+  FormRow2,
+  KeyValue,
+  ListRow,
+  Muted,
+  Pagination,
+  Pill,
+  ProgressBar,
+  SearchBar,
+  SectionHeader,
+  Select,
+  SheetTitle,
+} from "../ui"
 import { seanceDeEvenement, totauxSeance } from "./PresenceSheets"
 
 // Types d'événement, catégories de dépense et modes de règlement : ceux de la chorale
@@ -157,6 +177,9 @@ export function EventFormSheet({ event }: { event?: Evenement }) {
   )
 }
 
+/** Recherche et filtres des dépenses affichés au-delà de ce nombre de lignes. */
+const SEUIL_FILTRES_DEPENSES = 5
+
 export function EventDetailSheet({ eventId }: { eventId: number }) {
   const { events, currentUser, can, parametres, addDepense, validateDepense, deleteEvent, updateEvent, session } = useApp()
   const { toast } = useToast()
@@ -174,6 +197,23 @@ export function EventDetailSheet({ eventId }: { eventId: number }) {
   // Feuilles de présence du téléphone (carte « Présences ») ; hooks appelés avant le retour anticipé.
   const { items: seances } = useOfflineCollection(seanceRepository)
   const router = useRouter()
+  // Dépenses : recherche sur l'intitulé, filtre validées / en attente, liste paginée.
+  // L'indice d'origine est gardé : la validation se fait par position dans ev.depenses.
+  const [rechercheDep, setRechercheDep] = useState("")
+  const [filtreDep, setFiltreDep] = useState<"toutes" | "validees" | "attente">("toutes")
+  const filtresDepVisibles = (ev?.depenses.length ?? 0) > SEUIL_FILTRES_DEPENSES
+  const depensesVisibles = useMemo(
+    () =>
+      (ev?.depenses ?? [])
+        .map((d, i) => ({ d, i }))
+        .filter(
+          ({ d }) =>
+            !filtresDepVisibles ||
+            ((filtreDep === "toutes" || (filtreDep === "validees" ? d.valide : !d.valide)) && correspondRecherche(rechercheDep, d.label))
+        ),
+    [ev, filtresDepVisibles, filtreDep, rechercheDep]
+  )
+  const paginationDep = usePagination(depensesVisibles, 20, [rechercheDep, filtreDep])
 
   if (!ev || !currentUser) return null
 
@@ -339,27 +379,50 @@ export function EventDetailSheet({ eventId }: { eventId: number }) {
           {ev.depenses.length === 0 ? (
             <Muted className="mb-0.5">Aucune dépense enregistrée.</Muted>
           ) : (
-            ev.depenses.map((d, i) => (
-              <ListRow
-                key={d.id ?? i}
-                title={d.label}
-                // Montant en Geist Mono ; taille et couleur héritées du sous-titre de ListRow.
-                subtitle={<Text className="font-sans-medium tabular-nums">{fmt(d.montant)}</Text>}
-                right={
-                  d.syncStatus && d.syncStatus !== "synced" ? (
-                    // Pas encore envoyée (ou refusée) : la validation attend le serveur.
-                    <RecordSyncBadge status={d.syncStatus} />
-                  ) : d.valide ? (
-                    <Pill variant="green">Validée</Pill>
-                  ) : !can("depensesValider") || (d.saisiParId != null && d.saisiParId === session?.userId) ? (
-                    // Sa propre dépense : un autre membre du bureau ou de la trésorerie la valide.
-                    <Pill variant="pending">En attente</Pill>
-                  ) : (
-                    <Button title="Valider" variant="outline" small onPress={() => handleValidate(i)} />
-                  )
-                }
-              />
-            ))
+            <>
+              {/* Filtres affichés dès que la liste dépasse quelques lignes. */}
+              {filtresDepVisibles ? (
+                <>
+                  <SearchBar value={rechercheDep} onChangeText={setRechercheDep} placeholder="Rechercher une dépense" autoCorrect={false} />
+                  <ChipsRow>
+                    <Chip label={`Toutes (${ev.depenses.length})`} active={filtreDep === "toutes"} onPress={() => setFiltreDep("toutes")} />
+                    <Chip
+                      label={`Validées (${ev.depenses.filter((d) => d.valide).length})`}
+                      active={filtreDep === "validees"}
+                      onPress={() => setFiltreDep("validees")}
+                    />
+                    <Chip
+                      label={`En attente (${ev.depenses.filter((d) => !d.valide).length})`}
+                      active={filtreDep === "attente"}
+                      onPress={() => setFiltreDep("attente")}
+                    />
+                  </ChipsRow>
+                </>
+              ) : null}
+              {depensesVisibles.length === 0 ? <Muted className="mb-0.5">Aucune dépense ne correspond.</Muted> : null}
+              {paginationDep.pageItems.map(({ d, i }) => (
+                <ListRow
+                  key={d.id ?? i}
+                  title={d.label}
+                  // Montant en Geist Mono ; taille et couleur héritées du sous-titre de ListRow.
+                  subtitle={<Text className="font-sans-medium tabular-nums">{fmt(d.montant)}</Text>}
+                  right={
+                    d.syncStatus && d.syncStatus !== "synced" ? (
+                      // Pas encore envoyée (ou refusée) : la validation attend le serveur.
+                      <RecordSyncBadge status={d.syncStatus} />
+                    ) : d.valide ? (
+                      <Pill variant="green">Validée</Pill>
+                    ) : !can("depensesValider") || (d.saisiParId != null && d.saisiParId === session?.userId) ? (
+                      // Sa propre dépense : un autre membre du bureau ou de la trésorerie la valide.
+                      <Pill variant="pending">En attente</Pill>
+                    ) : (
+                      <Button title="Valider" variant="outline" small onPress={() => handleValidate(i)} />
+                    )
+                  }
+                />
+              ))}
+              <Pagination {...paginationDep} className="mt-2" />
+            </>
           )}
 
           {/* « Ajouter une dépense » ouvre le formulaire ; « Enregistrer » l'envoie et le referme.

@@ -33,6 +33,7 @@ import {
   EmptyState,
   Field,
   Muted,
+  Pagination,
   Pill,
   PressableScale,
   ProgressBar,
@@ -46,8 +47,9 @@ import { parId } from "../context/choraleData"
 import { useSheet } from "../context/SheetContext"
 import { useToast } from "../context/ToastContext"
 import { useOfflineCollection } from "../hooks/offline"
+import { usePagination } from "../hooks/usePagination"
 import { NUMERO_CULTE_MAX, nomCulte, type StatutPresence, type TypeSeance } from "../lib/api"
-import { formatDateLong, formatDateShort, localISODate, MONTHS, parseLocalISODate, todayLocalISO } from "../lib/format"
+import { correspondRecherche, formatDateLong, formatDateShort, localISODate, MONTHS, parseLocalISODate, todayLocalISO } from "../lib/format"
 import { syncManager, type OfflineRecord } from "../lib/offline"
 import { evenementRepository, numeroSeance, presenceMembreRepository, seanceRepository, type SeanceData } from "../lib/offline/entities"
 import { feuillesUniques, libelleSeance } from "../lib/presences"
@@ -166,6 +168,7 @@ export default function PresencesScreen() {
   const [recherche, setRecherche] = useState("")
   const [filtre, setFiltre] = useState<Filtre>("tous")
   const [filtreHistorique, setFiltreHistorique] = useState<FiltreHistorique>("toutes")
+  const [rechercheHistorique, setRechercheHistorique] = useState("")
 
   const ev = eventId != null ? parId(events, eventId) : undefined
   const date = type === "EVENEMENT" ? dateEvenement : dateJour
@@ -296,6 +299,8 @@ export default function PresencesScreen() {
       return !q || plat(m.nom).includes(q)
     })
   }, [roster, brouillon, recherche, filtre])
+  // Feuille d'appel paginée ; retour à la page 1 si la recherche, le filtre ou la séance changent.
+  const paginationAppel = usePagination(visibles, 20, [recherche, filtre, cleCourante])
 
   const modifier = (changer: (b: Brouillon) => void) => {
     setBrouillon((precedent) => {
@@ -406,7 +411,16 @@ export default function PresencesScreen() {
     cultes: feuilles.filter((s) => s.data.type === "CULTE").length,
     evenements: feuilles.filter((s) => s.data.type === "EVENEMENT").length,
   }
-  const feuillesVisibles = feuilles.filter((s) => filtreHistorique === "toutes" || s.data.type === TYPE_FILTRE[filtreHistorique])
+  const feuillesVisibles = useMemo(
+    () =>
+      feuilles.filter(
+        (s) =>
+          (filtreHistorique === "toutes" || s.data.type === TYPE_FILTRE[filtreHistorique]) &&
+          correspondRecherche(rechercheHistorique, libelleSeance(s.data), s.data.auteur, s.data.date ? formatDateShort(s.data.date) : null)
+      ),
+    [feuilles, filtreHistorique, rechercheHistorique]
+  )
+  const paginationHistorique = usePagination(feuillesVisibles, 20, [filtreHistorique, rechercheHistorique])
 
   const evenementDeSeance = (s: OfflineRecord<SeanceData>) =>
     events.find(
@@ -663,19 +677,22 @@ export default function PresencesScreen() {
                           {visibles.length === 0 ? (
                             <EmptyState title="Aucun résultat" subtitle="Modifiez la recherche ou le filtre." />
                           ) : (
-                            <Card className="py-1">
-                              {visibles.map((m, i) => (
-                                <LigneAppel
-                                  key={m.id}
-                                  membre={m}
-                                  ligne={ligneDe(m.id)}
-                                  inscrit={type === "EVENEMENT" && !!ev?.inscrits?.some((x) => x.id === m.id)}
-                                  last={i === visibles.length - 1}
-                                  onBasculer={() => basculer(m.id)}
-                                  onExcuser={() => ouvrirExcuse(m)}
-                                />
-                              ))}
-                            </Card>
+                            <>
+                              <Card className="py-1">
+                                {paginationAppel.pageItems.map((m, i) => (
+                                  <LigneAppel
+                                    key={m.id}
+                                    membre={m}
+                                    ligne={ligneDe(m.id)}
+                                    inscrit={type === "EVENEMENT" && !!ev?.inscrits?.some((x) => x.id === m.id)}
+                                    last={i === paginationAppel.pageItems.length - 1}
+                                    onBasculer={() => basculer(m.id)}
+                                    onExcuser={() => ouvrirExcuse(m)}
+                                  />
+                                ))}
+                              </Card>
+                              <Pagination {...paginationAppel} />
+                            </>
                           )}
                         </>
                       )}
@@ -689,6 +706,15 @@ export default function PresencesScreen() {
               ) : (
                 <>
                   <Button title="Nouvel appel" icon={Plus} block className="mb-3" onPress={nouvelAppel} />
+                  {feuilles.length > 0 ? (
+                    <SearchBar
+                      value={rechercheHistorique}
+                      onChangeText={setRechercheHistorique}
+                      placeholder="Rechercher une séance (titre, date, auteur)"
+                      autoCorrect={false}
+                      returnKeyType="search"
+                    />
+                  ) : null}
                   <ChipsRow>
                     <Chip label={`Toutes ${compteHistorique.toutes}`} active={filtreHistorique === "toutes"} onPress={() => setFiltreHistorique("toutes")} />
                     <Chip
@@ -704,19 +730,26 @@ export default function PresencesScreen() {
                     />
                   </ChipsRow>
                   {feuillesVisibles.length === 0 ? (
-                    <EmptyState icon={ClipboardCheck} title="Aucune feuille" subtitle="Touchez « Nouvel appel » pour faire l'appel d'une répétition, d'un culte ou d'un événement." />
+                    rechercheHistorique.trim() ? (
+                      <EmptyState icon={ClipboardCheck} title="Aucun résultat" subtitle="Modifiez la recherche ou le filtre." />
+                    ) : (
+                      <EmptyState icon={ClipboardCheck} title="Aucune feuille" subtitle="Touchez « Nouvel appel » pour faire l'appel d'une répétition, d'un culte ou d'un événement." />
+                    )
                   ) : (
-                    <Card className="py-1">
-                      {feuillesVisibles.map((s, i) => (
-                        <LigneHistorique
-                          key={s.localId}
-                          seance={s}
-                          libelle={libelleSeance(s.data)}
-                          last={i === feuillesVisibles.length - 1}
-                          onPress={() => ouvrirFeuille(s)}
-                        />
-                      ))}
-                    </Card>
+                    <>
+                      <Card className="py-1">
+                        {paginationHistorique.pageItems.map((s, i) => (
+                          <LigneHistorique
+                            key={s.localId}
+                            seance={s}
+                            libelle={libelleSeance(s.data)}
+                            last={i === paginationHistorique.pageItems.length - 1}
+                            onPress={() => ouvrirFeuille(s)}
+                          />
+                        ))}
+                      </Card>
+                      <Pagination {...paginationHistorique} />
+                    </>
                   )}
                 </>
               )}

@@ -1,9 +1,29 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { Text, View } from "react-native"
 import { DateField } from "../DateField"
-import { Avatar, Button, Card, Field, KeyValue, ListRow, Muted, Pill, ProgressBar, QrPlaceholder, RowBetween, SectionHeader, Select, SheetTitle } from "../ui"
+import {
+  Avatar,
+  Button,
+  Card,
+  Chip,
+  ChipsRow,
+  Field,
+  KeyValue,
+  ListRow,
+  Muted,
+  Pagination,
+  Pill,
+  ProgressBar,
+  QrPlaceholder,
+  RowBetween,
+  SearchBar,
+  SectionHeader,
+  Select,
+  SheetTitle,
+} from "../ui"
 
-import { fmt, MONTHS } from "../../lib/format"
+import { usePagination } from "../../hooks/usePagination"
+import { correspondRecherche, fmt, MONTHS } from "../../lib/format"
 import type { DetailsPaiement } from "../../lib/api"
 import { errorMessage, useApp } from "../../context/AppContext"
 import { parId } from "../../context/choraleData"
@@ -220,6 +240,26 @@ export function EventCotisationSheet({ eventId, chorishId }: { eventId: number; 
   const { openSheet, closeSheet } = useSheet()
   const ev = parId(events, eventId)
   const chorist = chorists.find((c) => c.id === chorishId)
+
+  // « Tous les choristes » : recherche par nom et filtre réglé / non réglé, liste paginée.
+  const [recherche, setRecherche] = useState("")
+  const [filtre, setFiltre] = useState<"tous" | "regles" | "nonRegles">("tous")
+  const lignes = useMemo(
+    () =>
+      ev
+        ? chorists.map((c) => {
+            const p = ev.contributions[c.id] || 0
+            return { c, p, regle: p >= ev.cotisationMontant }
+          })
+        : [],
+    [chorists, ev]
+  )
+  const visibles = useMemo(
+    () => lignes.filter((l) => (filtre === "tous" || (filtre === "regles" ? l.regle : !l.regle)) && correspondRecherche(recherche, l.c.name)),
+    [lignes, filtre, recherche]
+  )
+  const pagination = usePagination(visibles, 20, [recherche, filtre])
+
   if (!ev || !chorist) return null
 
   const paid = ev.contributions[chorishId] || 0
@@ -254,18 +294,26 @@ export function EventCotisationSheet({ eventId, chorishId }: { eventId: number; 
       {can("cotisations") ? (
         <>
           <SectionHeader title="Tous les choristes" className="mt-[18px]" />
-          {chorists.map((c, i) => {
-            const p = ev.contributions[c.id] || 0
-            return (
-              <ListRow
-                key={c.id}
-                left={<Avatar id={c.id} name={c.name} size={30} />}
-                title={c.name}
-                right={<Pill variant={p >= ev.cotisationMontant ? "green" : "default"}>{fmt(p)}</Pill>}
-                last={i === chorists.length - 1}
-              />
-            )
-          })}
+          <SearchBar value={recherche} onChangeText={setRecherche} placeholder="Rechercher un choriste" autoCorrect={false} />
+          <ChipsRow>
+            <Chip label={`Tous (${lignes.length})`} active={filtre === "tous"} onPress={() => setFiltre("tous")} />
+            <Chip label={`Réglés (${lignes.filter((l) => l.regle).length})`} active={filtre === "regles"} onPress={() => setFiltre("regles")} />
+            <Chip label={`Non réglés (${lignes.filter((l) => !l.regle).length})`} active={filtre === "nonRegles"} onPress={() => setFiltre("nonRegles")} />
+          </ChipsRow>
+          {visibles.length === 0 ? <Muted className="mb-2">Aucun choriste ne correspond.</Muted> : null}
+          {pagination.pageItems.map(({ c, p, regle }, i) => (
+            <ListRow
+              key={c.id}
+              left={<Avatar id={c.id} name={c.name} size={30} />}
+              title={c.name}
+              right={<Pill variant={regle ? "green" : "default"}>{fmt(p)}</Pill>}
+              last={i === pagination.pageItems.length - 1}
+              // Détail de la cotisation de ce choriste pour l'événement (paiement, reçu).
+              onPress={() => openSheet(<EventCotisationSheet eventId={eventId} chorishId={c.id} />)}
+              accessibilityLabel={`${c.name}, ${fmt(p)}${regle ? ", réglé" : ""}. Ouvrir le détail`}
+            />
+          ))}
+          <Pagination {...pagination} className="mt-2" />
         </>
       ) : null}
 

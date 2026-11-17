@@ -3,12 +3,13 @@
 // Équivalent mobile des modales du web (components/portail/modals/*compte*, *role*, *mdp*).
 
 import { Ban, Check, Eye, EyeOff, KeyRound, Pencil, RotateCcw, ShieldPlus, Trash2 } from "lucide-react-native"
-import React, { useState, useSyncExternalStore } from "react"
+import React, { useMemo, useState, useSyncExternalStore } from "react"
 import { Pressable, Text, View } from "react-native"
 import { colors } from "../../constants/theme"
 import { useApp } from "../../context/AppContext"
 import { useSheet } from "../../context/SheetContext"
 import { useToast } from "../../context/ToastContext"
+import { usePagination } from "../../hooks/usePagination"
 import {
   ApiError,
   attribuerRole,
@@ -19,13 +20,28 @@ import {
   setCompteActif,
   supprimerCompte,
   type Compte,
+  type NiveauParticipation,
 } from "../../lib/api"
 import { dataChanged } from "../../lib/offline"
 import { compteRepository } from "../../lib/offline/entities"
 import { PresencesMembre } from "../Assiduite"
+import {
+  depuisFiche,
+  libelle,
+  SITUATIONS_MATRIMONIALES,
+  SITUATIONS_SOCIALES,
+  STATUTS_EGLISE,
+  TYPES_MARIAGE,
+  validerFiche,
+  versFiche,
+  type ErreursFiche,
+  type FicheChoriste,
+  type FicheSaisie,
+} from "../../lib/fiche"
 import { BASIC_ROLES, INITIAL_ROLES, MANDATE_ROLES, ROLE_LABEL } from "../../lib/roles"
+import { FicheChoristeChamps } from "./FicheChoristeChamps"
 import type { Role } from "../../types"
-import { Button, Card, cx, Field, FormRow2, KeyValue, Muted, Pill, RowBetween, SectionHeader, Select, SheetTitle } from "../ui"
+import { Button, Card, cx, Field, FormRow2, KeyValue, Muted, Pagination, Pill, RowBetween, SectionHeader, Select, SheetTitle, type PillVariant } from "../ui"
 
 /* ------------------------------------ Liste partagée ------------------------------------ */
 
@@ -197,6 +213,68 @@ function Confirmation({
   )
 }
 
+/* ------------------------------------ Fiche d'inscription ------------------------------------ */
+
+/** Lignes renseignées de la fiche, regroupées comme sur la fiche papier. */
+function lignesFiche(f: FicheChoriste): [string, string][] {
+  const joindre = (...v: (string | false | undefined)[]) => v.filter(Boolean).join(" · ")
+  const types = f.typesMariage?.length ? ` (${f.typesMariage.map((t) => libelle(TYPES_MARIAGE, t)?.toLowerCase()).join(", ")})` : ""
+  const lignes: [string, string | undefined][] = [
+    ["Naissance", joindre(f.dateNaissance && dateCourte(f.dateNaissance), f.lieuNaissance)],
+    ["Adresse", f.adresse],
+    ["Quartier / zone", [f.quartier, f.zone && `zone ${f.zone}`].filter(Boolean).join(", ")],
+    ["Situation matrimoniale", f.situationMatrimoniale && libelle(SITUATIONS_MATRIMONIALES, f.situationMatrimoniale) + types],
+    ["Enfants", f.nombreEnfants != null ? String(f.nombreEnfants) : undefined],
+    ["Statut à l'Église", libelle(STATUTS_EGLISE, f.statutEglise)],
+    ["Baptême", joindre(f.dateBapteme && dateCourte(f.dateBapteme), f.lieuBapteme)],
+    ["Transféré(e)", f.transfere == null ? undefined : f.transfere ? "Oui" : "Non"],
+    ["Situation sociale", libelle(SITUATIONS_SOCIALES, f.situationSociale)],
+    ["Profession", f.profession],
+    ["Secteur d'activité", f.secteurActivite],
+    ["Précédente(s) chorale(s)", f.precedentesChorales],
+  ]
+  return lignes.filter((l): l is [string, string] => !!l[1])
+}
+
+/* ------------------------------------ État d'un compte ------------------------------------ */
+
+/**
+ * État affiché d'un compte : « Désactivé » (statut manuel) l'emporte ; sinon le niveau de participation
+ * calculé par le serveur. null : compte actif dont la participation n'est pas encore connue (cache hors ligne ancien).
+ */
+export type EtatCompte = NiveauParticipation | "DESACTIVE"
+
+export const ETAT_COMPTE: Record<EtatCompte, { label: string; description: string; variant: PillVariant }> = {
+  ACTIF: { label: "Actif", description: "Participation régulière", variant: "green" },
+  A_SURVEILLER: { label: "À surveiller", description: "Baisse de participation", variant: "pending" },
+  INACTIF: { label: "Inactif", description: "Absence prolongée", variant: "burg" },
+  DESACTIVE: { label: "Désactivé", description: "Compte désactivé", variant: "default" },
+}
+
+export function etatCompte(compte: Compte): EtatCompte | null {
+  if (compte.statut !== "actif") return "DESACTIVE"
+  return compte.participation?.niveau ?? null
+}
+
+/** Pastille de l'état d'un compte (rien tant que la participation est inconnue). */
+export function PastilleEtatCompte({ compte }: { compte: Compte }) {
+  const etat = etatCompte(compte)
+  if (!etat) return null
+  return <Pill variant={ETAT_COMPTE[etat].variant}>{ETAT_COMPTE[etat].label}</Pill>
+}
+
+/** « 15/08/2026 » depuis "2026-08-15" (sans passer par Date : pas de décalage de fuseau). */
+const dateJJMMAAAA = (iso: string) => iso.slice(0, 10).split("-").reverse().join("/")
+
+/** « Participation : 60 % depuis le 15/08/2026 (12 présents, 8 absents, 2 excusés) ». */
+export function texteParticipation(compte: Compte) {
+  const p = compte.participation
+  if (!p) return null
+  const pluriel = (n: number, mot: string) => `${n} ${mot}${n > 1 ? "s" : ""}`
+  const taux = p.taux != null ? `${Math.round(p.taux)} %` : "aucune séance comptée"
+  return `Participation : ${taux} depuis le ${dateJJMMAAAA(p.depuis)} (${pluriel(p.presents, "présent")}, ${pluriel(p.absents, "absent")}, ${pluriel(p.excuses, "excusé")})`
+}
+
 /* ------------------------------------ Détail d'un compte ------------------------------------ */
 
 type Demande = { type: "revoquer"; role: Role } | { type: "statut" } | { type: "mdp" } | { type: "supprimer" } | null
@@ -214,11 +292,14 @@ export function CompteDetailSheet({ compteId }: { compteId: number }) {
   const [erreur, setErreur] = useState<string | null>(null)
 
   const compte = comptes.find((c) => c.id === compteId)
+  // Historique des rôles (du plus récent au plus ancien), paginé ; calculé avant le retour anticipé (hooks).
+  const historique = useMemo(() => [...(compte?.historique ?? [])].sort((a, b) => b.debut.localeCompare(a.debut)), [compte])
+  const paginationHistorique = usePagination(historique, 20, [compteId])
   if (!compte) return null
   const d = droitsSur(compte)
   const actif = compte.statut === "actif"
   const aAttribuer = MANDATE_ROLES.filter((r) => !compte.roles.includes(r))
-  const historique = [...compte.historique].sort((a, b) => b.debut.localeCompare(a.debut))
+  const fiche = lignesFiche(compte.fiche ?? {})
 
   async function executer(action: () => Promise<void>) {
     setBusy(true)
@@ -274,9 +355,11 @@ export function CompteDetailSheet({ compteId }: { compteId: number }) {
         {compte.nom}
         {d.estMoi ? <Text className="font-sans text-[15px] text-ink-light"> (vous)</Text> : null}
       </SheetTitle>
-      <View className="mb-1 flex-row flex-wrap gap-1.5">
-        <Pill variant={actif ? "green" : "burg"}>{actif ? "Actif" : "Désactivé"}</Pill>
+      <View className="mb-1 flex-row flex-wrap items-center gap-1.5">
+        <PastilleEtatCompte compte={compte} />
+        {etatCompte(compte) ? <Muted>{ETAT_COMPTE[etatCompte(compte)!].description}</Muted> : null}
       </View>
+      {texteParticipation(compte) ? <Muted className="mt-1">{texteParticipation(compte)}</Muted> : null}
       {d.estAdminProtege ? <Muted className="mt-1">Géré depuis le back-office.</Muted> : null}
 
       <SectionHeader title="Coordonnées" />
@@ -285,6 +368,15 @@ export function CompteDetailSheet({ compteId }: { compteId: number }) {
         <KeyValue label="Nom" value={compte.nomDeFamille || "—"} />
         <KeyValue label="Téléphone" value={compte.telephone || "—"} mono />
         <KeyValue label="Email" value={compte.email || "—"} />
+      </Card>
+
+      <SectionHeader title="Fiche d'inscription" />
+      <Card>
+        {fiche.length === 0 ? (
+          <Muted>Fiche non renseignée.</Muted>
+        ) : (
+          fiche.map(([label, valeur], i) => <KeyValue key={label} first={i === 0} label={label} value={valeur} />)
+        )}
       </Card>
 
       <SectionHeader title="Rôles actuels" />
@@ -344,8 +436,8 @@ export function CompteDetailSheet({ compteId }: { compteId: number }) {
         {historique.length === 0 ? (
           <Muted>Aucun historique.</Muted>
         ) : (
-          historique.map((h, i) => (
-            <View key={`${h.role}-${h.debut}-${i}`} className={cx("py-2", i > 0 && "border-t border-line-soft")}>
+          paginationHistorique.pageItems.map((h, i) => (
+            <View key={`${h.role}-${h.debut}-${paginationHistorique.debut + i}`} className={cx("py-2", i > 0 && "border-t border-line-soft")}>
               <RowBetween>
                 <Text className="shrink font-sans-bold text-[13px] text-ink">{ROLE_LABEL[h.role]}</Text>
                 {h.fin ? null : <Pill variant="green">En cours</Pill>}
@@ -359,6 +451,7 @@ export function CompteDetailSheet({ compteId }: { compteId: number }) {
           ))
         )}
       </Card>
+      <Pagination {...paginationHistorique} />
 
       {demande?.type === "statut" ? (
         <Confirmation
@@ -409,7 +502,7 @@ export function CompteDetailSheet({ compteId }: { compteId: number }) {
       <View className="mt-5 gap-2">
         {d.peutModifier ? (
           <Button
-            title="Modifier les coordonnées"
+            title={fiche.length === 0 ? "Modifier / compléter la fiche" : "Modifier le choriste"}
             icon={Pencil}
             variant="outline"
             block
@@ -530,7 +623,7 @@ export function AttribuerRoleSheet({ compteId }: { compteId: number }) {
 
 /* ------------------------------------ Formulaires création / modification ------------------------------------ */
 
-type Erreurs = Partial<Record<"prenom" | "nom" | "telephone" | "email" | "motDePasse", string>>
+type Erreurs = Partial<Record<"prenom" | "nom" | "telephone" | "email" | "motDePasse", string>> & ErreursFiche
 
 /** Mêmes contrôles que le web ; `ignorerId` : compte en cours de modification. */
 function valider(
@@ -569,6 +662,7 @@ export function CompteFormSheet() {
   const [motDePasse, setMotDePasse] = useState("")
   const [voir, setVoir] = useState(false)
   const [role, setRole] = useState<Role>("choriste")
+  const [fiche, setFiche] = useState<FicheSaisie>(() => depuisFiche())
   const [erreurs, setErreurs] = useState<Erreurs>({})
   const [erreur, setErreur] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -576,7 +670,7 @@ export function CompteFormSheet() {
   const effacer = (champ: keyof Erreurs) => setErreurs((x) => ({ ...x, [champ]: undefined }))
 
   async function creer() {
-    const e = valider({ prenom, nom, telephone, email, motDePasse }, comptes)
+    const e: Erreurs = { ...validerFiche(fiche), ...valider({ prenom, nom, telephone, email, motDePasse }, comptes) }
     setErreurs(e)
     if (Object.keys(e).length) return
     setBusy(true)
@@ -589,10 +683,11 @@ export function CompteFormSheet() {
         email: email.trim(),
         motDePasse,
         role,
+        fiche: versFiche(fiche),
       })
       comptesStore.add(compte)
       closeSheet()
-      toast(`Compte de ${compte.nom} créé`)
+      toast(`${compte.nom} ajouté(e) à la chorale`)
     } catch (err) {
       setErreur(messageErreur(err))
       setBusy(false)
@@ -609,16 +704,19 @@ export function CompteFormSheet() {
 
   return (
     <View>
-      <SheetTitle>Créer un compte</SheetTitle>
-      <Muted>Le membre se connecte avec son téléphone (ou son email) et le mot de passe temporaire que vous lui transmettez.</Muted>
+      <SheetTitle>Ajouter un choriste</SheetTitle>
+      <Muted>
+        Seuls le nom, le prénom, le téléphone et le mot de passe sont obligatoires : le reste de la fiche peut être complété plus tard. Le
+        membre se connecte avec son téléphone (ou son email) et le mot de passe temporaire que vous lui transmettez.
+      </Muted>
       <FormRow2>
         <View>
-          <Field label="Prénom" value={prenom} onChangeText={(v) => (setPrenom(v), effacer("prenom"))} placeholder="Ex. Julie" autoCapitalize="words" />
-          <FieldError>{erreurs.prenom}</FieldError>
+          <Field label="Nom(s)" value={nom} onChangeText={(v) => (setNom(v), effacer("nom"))} placeholder="Ex. Nkomo" autoCapitalize="words" />
+          <FieldError>{erreurs.nom}</FieldError>
         </View>
         <View>
-          <Field label="Nom" value={nom} onChangeText={(v) => (setNom(v), effacer("nom"))} placeholder="Ex. Nkomo" autoCapitalize="words" />
-          <FieldError>{erreurs.nom}</FieldError>
+          <Field label="Prénom(s)" value={prenom} onChangeText={(v) => (setPrenom(v), effacer("prenom"))} placeholder="Ex. Julie" autoCapitalize="words" />
+          <FieldError>{erreurs.prenom}</FieldError>
         </View>
       </FormRow2>
       <Field
@@ -642,6 +740,13 @@ export function CompteFormSheet() {
         autoComplete="email"
       />
       <FieldError>{erreurs.email}</FieldError>
+      <FicheChoristeChamps
+        saisie={fiche}
+        onChange={(maj) => setFiche((f) => ({ ...f, ...maj }))}
+        erreurs={erreurs}
+        onEffacerErreur={effacer}
+      />
+      <SectionHeader title="Accès à l'espace" />
       <Field
         label="Mot de passe temporaire"
         mono
@@ -676,7 +781,7 @@ export function CompteFormSheet() {
         </Muted>
       ) : null}
       <ErrorBanner message={erreur} />
-      <Button title={busy ? "Création…" : "Créer le compte"} icon={Check} block className="mt-5" disabled={busy} onPress={creer} />
+      <Button title={busy ? "Création…" : "Ajouter le choriste"} icon={Check} block className="mt-5" disabled={busy} onPress={creer} />
       <Button title="Annuler" variant="ghost" block className="mt-2" disabled={busy} onPress={closeSheet} />
     </View>
   )
@@ -692,6 +797,7 @@ export function ModifierCompteSheet({ compteId }: { compteId: number }) {
   const [nom, setNom] = useState(compte?.nomDeFamille ?? "")
   const [telephone, setTelephone] = useState(compte?.telephone ?? "")
   const [email, setEmail] = useState(compte?.email ?? "")
+  const [fiche, setFiche] = useState<FicheSaisie>(() => depuisFiche(compte?.fiche))
   const [erreurs, setErreurs] = useState<Erreurs>({})
   const [erreur, setErreur] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -701,16 +807,22 @@ export function ModifierCompteSheet({ compteId }: { compteId: number }) {
   const retour = () => openSheet(<CompteDetailSheet compteId={compteId} />)
 
   async function enregistrer() {
-    const e = valider({ prenom, nom, telephone, email }, comptes, compteId)
+    const e: Erreurs = { ...validerFiche(fiche), ...valider({ prenom, nom, telephone, email }, comptes, compteId) }
     setErreurs(e)
     if (Object.keys(e).length) return
     setBusy(true)
     setErreur(null)
     try {
       comptesStore.replace(
-        await modifierCompte(compteId, { prenom: prenom.trim(), nom: nom.trim(), telephone: formaterTelephone(telephone), email: email.trim() })
+        await modifierCompte(compteId, {
+          prenom: prenom.trim(),
+          nom: nom.trim(),
+          telephone: formaterTelephone(telephone),
+          email: email.trim(),
+          fiche: versFiche(fiche),
+        })
       )
-      toast("Coordonnées enregistrées")
+      toast("Modifications enregistrées")
       retour()
     } catch (err) {
       setErreur(messageErreur(err))
@@ -720,7 +832,7 @@ export function ModifierCompteSheet({ compteId }: { compteId: number }) {
 
   return (
     <View>
-      <SheetTitle>Modifier le compte</SheetTitle>
+      <SheetTitle>Modifier le choriste</SheetTitle>
       <Muted>Le téléphone et l'email servent d'identifiants de connexion.</Muted>
       <FormRow2>
         <View>
@@ -752,6 +864,12 @@ export function ModifierCompteSheet({ compteId }: { compteId: number }) {
       />
       <FieldError>{erreurs.email}</FieldError>
       {compte.email && !email.trim() ? <Muted className="mt-1 text-[11.5px]">Sans email, le membre se connectera avec son téléphone.</Muted> : null}
+      <FicheChoristeChamps
+        saisie={fiche}
+        onChange={(maj) => setFiche((f) => ({ ...f, ...maj }))}
+        erreurs={erreurs}
+        onEffacerErreur={effacer}
+      />
       <ErrorBanner message={erreur} />
       <Button title={busy ? "Enregistrement…" : "Enregistrer"} icon={Check} block className="mt-5" disabled={busy} onPress={enregistrer} />
       <Button title="Annuler" variant="ghost" block className="mt-2" disabled={busy} onPress={retour} />

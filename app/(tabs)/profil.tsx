@@ -1,30 +1,44 @@
 // Écran Profil — conforme à renderProfil() du prototype.
 import { router } from "expo-router"
+import { useState } from "react"
 import { Text, View } from "react-native"
 
 import { Screen } from "../../components/layout"
 import { ReceiptSheet } from "../../components/sheets/CotisationSheets"
 import { ClipboardCheck, Receipt } from "lucide-react-native"
 import { ResumeAssiduiteBloc, STATUT_PRESENCE } from "../../components/Assiduite"
-import { Avatar, Button, Card, CardTitle, Chevron, EmptyState, ListRow, Muted, Pill, SectionHeader } from "../../components/ui"
+import { Avatar, Button, Card, CardTitle, Chevron, Chip, ChipsRow, EmptyState, ListRow, Muted, Pagination, Pill, SearchBar, SectionHeader } from "../../components/ui"
 import { colors } from "../../constants/theme"
 import { useApp } from "../../context/AppContext"
 import { useSheet } from "../../context/SheetContext"
 import { useOfflineCollection } from "../../hooks/offline"
+import { usePagination } from "../../hooks/usePagination"
 import { LIBELLE_TYPE_SEANCE } from "../../lib/api"
-import { fmt, formatDateShort } from "../../lib/format"
+import { correspondRecherche, fmt, formatDateShort } from "../../lib/format"
 import { mesPresencesRepository } from "../../lib/offline/entities"
+import type { RecuType } from "../../types"
 
 export default function ProfilScreen() {
-  const { currentUser, roleHistory, receiptsFor, logout, can } = useApp()
+  const { currentUser, roleHistory, receiptsFor, logout, can, parametres } = useApp()
   const { openSheet } = useSheet()
   // Assiduité du membre connecté (12 derniers mois), calculée par le serveur.
   const assiduite = useOfflineCollection(mesPresencesRepository).items[0]?.data ?? null
 
+  // « Mes reçus » : recherche (libellé, numéro), filtres type et mode de règlement, liste paginée.
+  const [recherche, setRecherche] = useState("")
+  const [typeRecu, setTypeRecu] = useState<RecuType | null>(null)
+  const [mode, setMode] = useState<string | null>(null)
+  const myReceipts = currentUser ? receiptsFor(currentUser.id) : []
+  const libelleMode = (code: string) => parametres.modesReglement.find((m) => m.code === code)?.label ?? code
+  const modesPresents = [...new Set(myReceipts.map((r) => r.mode).filter((m): m is string => !!m))]
+  const recusVisibles = myReceipts.filter(
+    (r) => (!typeRecu || r.type === typeRecu) && (!mode || r.mode === mode) && correspondRecherche(recherche, r.label, r.id, r.date)
+  )
+  const paginationRecus = usePagination(recusVisibles, 20, [recherche, typeRecu, mode])
+
   if (!currentUser) return null
 
   const hist = roleHistory[currentUser.id] ?? []
-  const myReceipts = receiptsFor(currentUser.id)
 
   return (
     <Screen title="Profil">
@@ -105,22 +119,43 @@ export default function ProfilScreen() {
       {myReceipts.length === 0 ? (
         <EmptyState icon={Receipt} title="Aucun reçu" subtitle="Vos reçus apparaîtront ici après un paiement." />
       ) : (
-        <Card className="py-1">
-          {myReceipts.map((r, i) => (
-            <ListRow
-              key={r.localId ?? r.id}
-              last={i === myReceipts.length - 1}
-              title={r.label}
-              subtitle={`${r.date} · ${r.type}` + (r.syncStatus === "pending" ? " · en attente d'envoi" : r.syncStatus === "failed" ? " · non envoyé" : "")}
-              right={
-                <Pill variant="gold" mono>
-                  {fmt(r.montant)}
-                </Pill>
-              }
-              onPress={() => openSheet(<ReceiptSheet receipt={r} />)}
-            />
-          ))}
-        </Card>
+        <>
+          <SearchBar value={recherche} onChangeText={setRecherche} placeholder="Rechercher un reçu (libellé, numéro, date)" autoCorrect={false} />
+          <ChipsRow className={modesPresents.length > 1 ? "mb-2" : undefined}>
+            <Chip label="Tous" active={typeRecu === null} onPress={() => setTypeRecu(null)} />
+            <Chip label="Statutaire" active={typeRecu === "Statutaire"} onPress={() => setTypeRecu("Statutaire")} />
+            <Chip label="Événementielle" active={typeRecu === "Événementielle"} onPress={() => setTypeRecu("Événementielle")} />
+          </ChipsRow>
+          {modesPresents.length > 1 ? (
+            <ChipsRow>
+              <Chip label="Tous les modes" active={mode === null} onPress={() => setMode(null)} />
+              {modesPresents.map((m) => (
+                <Chip key={m} label={libelleMode(m)} active={mode === m} onPress={() => setMode(mode === m ? null : m)} />
+              ))}
+            </ChipsRow>
+          ) : null}
+          {recusVisibles.length === 0 ? (
+            <EmptyState icon={Receipt} title="Aucun résultat" subtitle="Modifiez la recherche ou les filtres." />
+          ) : (
+            <Card className="py-1">
+              {paginationRecus.pageItems.map((r, i) => (
+                <ListRow
+                  key={r.localId ?? r.id}
+                  last={i === paginationRecus.pageItems.length - 1}
+                  title={r.label}
+                  subtitle={`${r.date} · ${r.type}` + (r.syncStatus === "pending" ? " · en attente d'envoi" : r.syncStatus === "failed" ? " · non envoyé" : "")}
+                  right={
+                    <Pill variant="gold" mono>
+                      {fmt(r.montant)}
+                    </Pill>
+                  }
+                  onPress={() => openSheet(<ReceiptSheet receipt={r} />)}
+                />
+              ))}
+            </Card>
+          )}
+          <Pagination {...paginationRecus} />
+        </>
       )}
 
       <Button

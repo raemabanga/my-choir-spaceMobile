@@ -7,7 +7,7 @@
 // Geist Mono réservé aux numéros de reçu et aux codes, aucune emoji.
 
 import { LinearGradient } from "expo-linear-gradient"
-import { Check, ChevronDown, ChevronRight, Search, X, type LucideIcon } from "lucide-react-native"
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Search, X, type LucideIcon } from "lucide-react-native"
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { FlatList, Keyboard, Modal, Pressable, Text, TextInput, TextInputProps, TextProps, useWindowDimensions, View, ViewProps } from "react-native"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
@@ -324,6 +324,66 @@ export function ChipsRow({ children, className }: { children: React.ReactNode; c
   return <View className={cx("mb-3.5 flex-row flex-wrap gap-[7px]", className)}>{children}</View>
 }
 
+/* ------------------------------------ Pagination ------------------------------------ */
+
+/** Bouton « Précédent » / « Suivant » du pied de liste (cible tactile de 44px). */
+function BoutonPage({ sens, disabled, onPress }: { sens: "prec" | "suiv"; disabled: boolean; onPress: () => void }) {
+  const Icon = sens === "prec" ? ChevronLeft : ChevronRight
+  const couleur = disabled ? colors.n400 : colors.navy
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={sens === "prec" ? "Page précédente" : "Page suivante"}
+      accessibilityState={{ disabled }}
+      className={cx(
+        "min-h-touch min-w-touch flex-row items-center justify-center gap-1 rounded-field border border-line-strong bg-paper px-3 active:opacity-70",
+        disabled && "opacity-50"
+      )}
+    >
+      {sens === "prec" ? <Icon size={16} color={couleur} strokeWidth={2} /> : null}
+      <Text className={cx("font-sans-semibold text-[13px]", disabled ? "text-ink-light" : "text-navy")}>{sens === "prec" ? "Précédent" : "Suivant"}</Text>
+      {sens === "suiv" ? <Icon size={16} color={couleur} strokeWidth={2} /> : null}
+    </Pressable>
+  )
+}
+
+/**
+ * Pied de liste paginée : « 1–20 sur 134 » et boutons Précédent / Suivant.
+ * Masqué quand tout tient sur une page. S'utilise avec usePagination : <Pagination {...pagination} />.
+ */
+export function Pagination({
+  page,
+  nbPages,
+  total,
+  taille,
+  setPage,
+  className,
+}: {
+  page: number
+  nbPages: number
+  total: number
+  taille: number
+  setPage: (page: number) => void
+  /** Marges uniquement (ex. "mt-2"). */
+  className?: string
+}) {
+  if (nbPages <= 1) return null
+  const debut = (page - 1) * taille + 1
+  const fin = Math.min(page * taille, total)
+  return (
+    <View className={cx("mb-3 mt-1 flex-row items-center justify-between gap-2", className)}>
+      <BoutonPage sens="prec" disabled={page <= 1} onPress={() => setPage(page - 1)} />
+      <View accessibilityLiveRegion="polite" className="min-w-0 shrink items-center">
+        <Text className="font-sans-medium text-[13px] tabular-nums text-ink-soft">{`${debut}–${fin} sur ${total}`}</Text>
+        <Text className="font-sans text-[11.5px] tabular-nums text-ink-light">{`Page ${page} / ${nbPages}`}</Text>
+      </View>
+      <BoutonPage sens="suiv" disabled={page >= nbPages} onPress={() => setPage(page + 1)} />
+    </View>
+  )
+}
+
 /* ------------------------------------- Avatar (.avatar) ------------------------------------- */
 
 export function initials(name: string) {
@@ -358,6 +418,7 @@ export function ListRow({
   right,
   onPress,
   last,
+  accessibilityLabel,
 }: {
   left?: React.ReactNode
   title: string
@@ -366,12 +427,15 @@ export function ListRow({
   right?: React.ReactNode
   onPress?: () => void
   last?: boolean
+  /** Libellé lu par le lecteur d'écran (ligne tactile). */
+  accessibilityLabel?: string
 }) {
   return (
     <Pressable
       onPress={onPress}
       disabled={!onPress}
       accessibilityRole={onPress ? "button" : undefined}
+      accessibilityLabel={accessibilityLabel}
       className={cx("min-h-touch flex-row items-center gap-3 py-3 active:opacity-70", !last && "border-b border-line-soft")}
     >
       {left}

@@ -3,10 +3,11 @@
 
 import { router, type Href } from "expo-router"
 import { CheckCheck } from "lucide-react-native"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Pressable, Text, View } from "react-native"
 import { colors } from "../../constants/theme"
 import { useSheet } from "../../context/SheetContext"
+import { usePagination } from "../../hooks/usePagination"
 import {
   fetchNotifications,
   marquerNotificationLue,
@@ -14,9 +15,10 @@ import {
   type NotificationEspace,
   type NotificationsReponse,
 } from "../../lib/api"
+import { correspondRecherche } from "../../lib/format"
 import { syncManager } from "../../lib/offline"
 import { ecranDeNotification } from "../../lib/push"
-import { cx, Muted, SheetTitle } from "../ui"
+import { Chip, ChipsRow, cx, Muted, Pagination, SearchBar, SheetTitle } from "../ui"
 
 /** « à l'instant », « il y a 5 min », « il y a 3 h », « hier », puis la date. */
 function ilYa(iso: string) {
@@ -33,6 +35,8 @@ export function NotificationsSheet({ onChange }: { /** Compteur de la cloche mis
   const [donnees, setDonnees] = useState<NotificationsReponse | null>(null)
   const [erreur, setErreur] = useState(false)
   const derniere = useRef(0)
+  const [recherche, setRecherche] = useState("")
+  const [nonLuesSeules, setNonLuesSeules] = useState(false)
 
   const appliquer = useCallback(
     async (requete: () => Promise<NotificationsReponse>) => {
@@ -63,6 +67,12 @@ export function NotificationsSheet({ onChange }: { /** Compteur de la cloche mis
   }
 
   const nonLues = donnees?.nonLues ?? 0
+  const toutes = donnees?.notifications
+  const visibles = useMemo(
+    () => (toutes ?? []).filter((n) => (!nonLuesSeules || !n.lue) && correspondRecherche(recherche, n.titre, n.message)),
+    [toutes, nonLuesSeules, recherche]
+  )
+  const pagination = usePagination(visibles, 20, [recherche, nonLuesSeules])
 
   return (
     <View>
@@ -89,24 +99,35 @@ export function NotificationsSheet({ onChange }: { /** Compteur de la cloche mis
       ) : donnees.notifications.length === 0 ? (
         <Muted className="py-10 text-center">Aucune notification pour le moment.</Muted>
       ) : (
-        <View className="overflow-hidden rounded-card border border-line bg-paper">
-          {donnees.notifications.map((n, i) => (
-            <Pressable
-              key={n.id}
-              onPress={() => choisir(n)}
-              accessibilityRole="button"
-              accessibilityLabel={`${n.lue ? "" : "Non lue. "}${n.titre}. ${n.message}. ${ilYa(n.createdAt)}`}
-              className={cx("flex-row gap-3 px-4 py-3 active:opacity-70", i > 0 && "border-t border-line", !n.lue && "bg-primary-soft")}
-            >
-              <View className={cx("mt-1.5 h-2 w-2 rounded-full", n.lue ? "bg-transparent" : "bg-navy")} />
-              <View className="min-w-0 flex-1">
-                <Text className={cx("text-[14px] text-ink", n.lue ? "font-sans" : "font-sans-semibold")}>{n.titre}</Text>
-                <Muted className="mt-0.5">{n.message}</Muted>
-                <Text className="mt-1 font-sans text-[11.5px] text-ink-light">{ilYa(n.createdAt)}</Text>
-              </View>
-            </Pressable>
-          ))}
-        </View>
+        <>
+          <SearchBar value={recherche} onChangeText={setRecherche} placeholder="Rechercher une notification" autoCorrect={false} />
+          <ChipsRow>
+            <Chip label={`Toutes (${donnees.notifications.length})`} active={!nonLuesSeules} onPress={() => setNonLuesSeules(false)} />
+            <Chip label={`Non lues (${donnees.notifications.filter((n) => !n.lue).length})`} active={nonLuesSeules} onPress={() => setNonLuesSeules(true)} />
+          </ChipsRow>
+          {visibles.length === 0 ? <Muted className="py-6 text-center">Aucune notification ne correspond.</Muted> : null}
+          {visibles.length > 0 ? (
+            <View className="overflow-hidden rounded-card border border-line bg-paper">
+              {pagination.pageItems.map((n, i) => (
+                <Pressable
+                  key={n.id}
+                  onPress={() => choisir(n)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${n.lue ? "" : "Non lue. "}${n.titre}. ${n.message}. ${ilYa(n.createdAt)}`}
+                  className={cx("flex-row gap-3 px-4 py-3 active:opacity-70", i > 0 && "border-t border-line", !n.lue && "bg-primary-soft")}
+                >
+                  <View className={cx("mt-1.5 h-2 w-2 rounded-full", n.lue ? "bg-transparent" : "bg-navy")} />
+                  <View className="min-w-0 flex-1">
+                    <Text className={cx("text-[14px] text-ink", n.lue ? "font-sans" : "font-sans-semibold")}>{n.titre}</Text>
+                    <Muted className="mt-0.5">{n.message}</Muted>
+                    <Text className="mt-1 font-sans text-[11.5px] text-ink-light">{ilYa(n.createdAt)}</Text>
+                  </View>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+          <Pagination {...pagination} className="mt-3" />
+        </>
       )}
     </View>
   )

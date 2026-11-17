@@ -4,6 +4,7 @@
 
 import * as SecureStore from "expo-secure-store"
 import { Platform } from "react-native"
+import { ficheDepuisApi, type FicheChoriste } from "./fiche"
 import { fromApiRole, fromApiRoles, ROLE_LABEL, TO_API_ROLE } from "./roles"
 import type { Chant, Evenement, Recu, Role } from "../types"
 
@@ -126,6 +127,27 @@ interface ApiCompte {
   temporaryPassword?: string | null
   roles: string[]
   history: { roleCode: string; assignedAt: string; revokedAt: string | null; assignedBy: ApiPerson | null }[]
+  /** Fiche d'inscription (champs null : non renseignés). */
+  fiche?: Record<string, unknown> | null
+  /** Participation calculée par le serveur (null : non calculée). */
+  participation?: Participation | null
+}
+
+/** Niveau de participation calculé (le statut « Désactivé » reste, lui, manuel). */
+export type NiveauParticipation = "ACTIF" | "A_SURVEILLER" | "INACTIF"
+
+/**
+ * Participation d'un membre sur la période de calcul (paramètres moisInactivite / seuilParticipation).
+ * Taux = présents / (présents + absents) en % ; les excusés ne comptent pas (null : aucune séance comptée).
+ */
+export interface Participation {
+  niveau: NiveauParticipation
+  taux: number | null
+  presents: number
+  absents: number
+  excuses: number
+  /** Début de la période, "AAAA-MM-JJ". */
+  depuis: string
 }
 
 /** Compte d'un membre (écran « Comptes & Rôles »), comme sur le web. */
@@ -143,6 +165,10 @@ export interface Compte {
   /** Mot de passe temporaire, affiché tant que le membre n'a pas choisi le sien (null sinon). */
   motDePasseTemporaire: string | null
   historique: { role: Role; debut: string; fin: string | null; auteur: string }[]
+  /** Fiche d'inscription. Absente des comptes enregistrés hors ligne avant son ajout. */
+  fiche?: FicheChoriste
+  /** Participation calculée par le serveur. Absente des comptes enregistrés hors ligne avant son ajout. */
+  participation?: Participation | null
 }
 
 /** Session telle qu'utilisée par l'app. */
@@ -172,6 +198,8 @@ function toCompte(c: ApiCompte): Compte {
     roles: toRoles(c.roles),
     statut: c.status === "ACTIVE" ? "actif" : "désactivé",
     motDePasseTemporaire: c.temporaryPassword ?? null,
+    fiche: ficheDepuisApi(c.fiche),
+    participation: c.participation ?? null,
     historique: c.history
       .filter((h) => fromApiRole(h.roleCode))
       .map((h) => ({
@@ -263,6 +291,7 @@ export interface NouveauCompte {
   /** Mot de passe temporaire, à transmettre au membre (il devra le changer). */
   motDePasse: string
   role: Role
+  fiche: FicheChoriste
 }
 
 export async function createCompte(form: NouveauCompte) {
@@ -276,17 +305,27 @@ export async function createCompte(form: NouveauCompte) {
         email: form.email || undefined,
         password: form.motDePasse,
         roleCode: TO_API_ROLE[form.role],
+        fiche: form.fiche,
       }),
     })
   )
 }
 
-/** Un email vide le supprime : le membre se connecte alors avec son téléphone. */
-export async function modifierCompte(compteId: number, form: Pick<NouveauCompte, "prenom" | "nom" | "telephone" | "email">) {
+/**
+ * Un email vide le supprime : le membre se connecte alors avec son téléphone.
+ * La fiche est envoyée entière : un champ laissé vide est effacé.
+ */
+export async function modifierCompte(compteId: number, form: Pick<NouveauCompte, "prenom" | "nom" | "telephone" | "email" | "fiche">) {
   return toCompte(
     await request<ApiCompte>(`/espace/comptes/${compteId}`, {
       method: "PATCH",
-      body: JSON.stringify({ firstName: form.prenom, lastName: form.nom, phone: form.telephone, email: form.email || null }),
+      body: JSON.stringify({
+        firstName: form.prenom,
+        lastName: form.nom,
+        phone: form.telephone,
+        email: form.email || null,
+        fiche: form.fiche,
+      }),
     })
   )
 }
@@ -738,6 +777,10 @@ export interface Parametres {
   modesReglement: { code: ModeReglement; label: string }[]
   /** Change à chaque nouveau logo (pour le recharger) ; null sans logo. */
   logoVersion: string | null
+  /** Période de calcul de la participation, en mois (1 à 24). Absent du cache d'avant son ajout. */
+  moisInactivite?: number
+  /** Taux de participation (%) sous lequel un membre est « À surveiller » (1 à 100). */
+  seuilParticipation?: number
 }
 
 export function fetchParametres() {

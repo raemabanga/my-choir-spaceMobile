@@ -15,10 +15,11 @@ import { AppHeader } from "../../components/AppHeader"
 import { useResponsive } from "../../components/layout"
 import { ChantFormSheet } from "../../components/sheets/ChantSheets"
 import { OfflineBanner, RecordSyncBadge } from "../../components/sync"
-import { Chevron, cx, EmptyState, SearchBar } from "../../components/ui"
+import { Chevron, cx, EmptyState, FormRow2, Pagination, SearchBar, Select } from "../../components/ui"
 import { colors } from "../../constants/theme"
 import { useApp } from "../../context/AppContext"
 import { useSheet } from "../../context/SheetContext"
+import { usePagination, type PaginationEtat } from "../../hooks/usePagination"
 import { ALPHABET, cleChant, lettreDe, numerosChants, sansAccents, trierParTitre } from "../../lib/chants"
 import { useFavoris } from "../../lib/favoris"
 import type { Chant } from "../../types"
@@ -31,6 +32,10 @@ const ONGLETS: { key: Onglet; label: string }[] = [
   { key: "numeros", label: "Numéros" },
   { key: "favoris", label: "Favoris" },
 ]
+
+/** Chants par page (listes) et numéros par page (grille de 4 colonnes : 12 rangées). */
+const TAILLE_LISTE = 20
+const TAILLE_GRILLE = 48
 
 /** Hauteur d'une lettre de l'index A–Z (sert aussi à retrouver la lettre sous le doigt). */
 const LETTRE_H = 18
@@ -138,6 +143,24 @@ function IndexAlphabet({ disponibles, onLettre }: { disponibles: Set<string>; on
   )
 }
 
+/* ------------------------------------ Filtres ------------------------------------ */
+
+/** Clé de comparaison d'une tonalité ou d'un compositeur (accents, casse et espaces ignorés). */
+const cleValeur = (v: string) => sansAccents(v.trim().replace(/s+/g, " "))
+
+/** Valeurs présentes dans les chants (une seule par clé), triées : options d'un filtre ("" : toutes). */
+function optionsDe(chants: Chant[], champ: "tonalite" | "compositeur", tous: string) {
+  const parCle = new Map<string, string>()
+  for (const c of chants) {
+    const v = (c[champ] ?? "").trim()
+    if (v && !parCle.has(cleValeur(v))) parCle.set(cleValeur(v), v)
+  }
+  return [
+    { label: tous, value: "" },
+    ...[...parCle].sort((a, b) => a[1].localeCompare(b[1], "fr")).map(([cle, label]) => ({ label, value: cle })),
+  ]
+}
+
 /* ------------------------------------ Écran ------------------------------------ */
 
 export default function ChantsScreen() {
@@ -148,24 +171,35 @@ export default function ChantsScreen() {
   const [onglet, setOnglet] = useState<Onglet>("alphabet")
   const [recherche, setRecherche] = useState("")
   const [theme, setTheme] = useState<string | null>(null)
+  // Filtres tonalité et compositeur ("" : tous) ; valeur = clé sans accents (voir cleValeur).
+  const [tonalite, setTonalite] = useState("")
+  const [compositeur, setCompositeur] = useState("")
+  const optionsTonalite = useMemo(() => optionsDe(chants, "tonalite", "Toutes les tonalités"), [chants])
+  const optionsCompositeur = useMemo(() => optionsDe(chants, "compositeur", "Tous les compositeurs"), [chants])
 
   const numeros = useMemo(() => numerosChants(chants), [chants])
   const numeroDe = useCallback((c: Chant) => numeros.get(cleChant(c)) ?? "—", [numeros])
 
-  // Recherche : titre, auteur ou numéro (accents et casse ignorés).
+  // Recherche : titre, auteur ou numéro (accents et casse ignorés), combinée aux filtres tonalité et compositeur.
   const q = sansAccents(recherche.trim())
   const visibles = useMemo(
     () =>
-      q
-        ? chants.filter((c) => sansAccents(c.titre).includes(q) || sansAccents(c.compositeur).includes(q) || numeroDe(c).includes(q))
-        : chants,
-    [chants, q, numeroDe]
+      chants.filter(
+        (c) =>
+          (!q || sansAccents(c.titre).includes(q) || sansAccents(c.compositeur).includes(q) || numeroDe(c).includes(q)) &&
+          (!tonalite || cleValeur(c.tonalite ?? "") === tonalite) &&
+          (!compositeur || cleValeur(c.compositeur ?? "") === compositeur)
+      ),
+    [chants, q, numeroDe, tonalite, compositeur]
   )
   const alphabetiques = useMemo(() => trierParTitre(visibles), [visibles])
+  const pagAlpha = usePagination(alphabetiques, TAILLE_LISTE, [q, tonalite, compositeur])
 
   /* ---------- Alphabet : position de la première ligne de chaque lettre ---------- */
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null)
   const positions = useRef(new Map<string, number>())
+  /** Lettre demandée sur une autre page : on y défile dès que sa première ligne est placée. */
+  const lettreEnAttente = useRef<string | null>(null)
   const disponibles = useMemo(() => new Set(alphabetiques.map((c) => lettreDe(c.titre))), [alphabetiques])
   const premiers = useMemo(() => {
     const vus = new Set<string>()
@@ -184,11 +218,50 @@ export default function ChantsScreen() {
     (lettre: string) => {
       // Lettre sans chant : la suivante qui en a (sinon la précédente).
       const i = ALPHABET.indexOf(lettre)
-      const cible = [...ALPHABET.slice(i), ...ALPHABET.slice(0, i).reverse()].find((l) => positions.current.has(l))
-      if (cible) scroll.current?.scrollTo({ y: positions.current.get(cible)!, animated: false })
+      const cible = [...ALPHABET.slice(i), ...ALPHABET.slice(0, i).reverse()].find((l) => disponibles.has(l))
+      if (!cible) return
+      // Page qui contient le premier chant de la lettre (liste paginée).
+      const rang = alphabetiques.findIndex((c) => lettreDe(c.titre) === cible)
+      const page = Math.floor(rang / TAILLE_LISTE) + 1
+      if (page === pagAlpha.page && positions.current.has(cible)) {
+        lettreEnAttente.current = null
+        scroll.current?.scrollTo({ y: positions.current.get(cible)!, animated: false })
+      } else {
+        lettreEnAttente.current = cible
+        pagAlpha.setPage(page)
+      }
     },
-    []
+    [disponibles, alphabetiques, pagAlpha]
   )
+
+  /** Position de la première ligne d'une lettre (page affichée) ; défile si la lettre était demandée. */
+  const placerLettre = useCallback((lettre: string, y: number) => {
+    positions.current.set(lettre, y)
+    if (lettreEnAttente.current === lettre) {
+      lettreEnAttente.current = null
+      scroll.current?.scrollTo({ y, animated: false })
+    }
+  }, [])
+
+  /** Changement de page par les boutons : retour en haut de la liste. */
+  const pageAlpha = useCallback(
+    (page: number) => {
+      pagAlpha.setPage(page)
+      scroll.current?.scrollTo({ y: 0, animated: false })
+    },
+    [pagAlpha]
+  )
+
+  /* ---------- Numéros, thème choisi et favoris : listes paginées ---------- */
+  const parNumero = useMemo(() => [...visibles].sort((a, b) => numeroDe(a).localeCompare(numeroDe(b))), [visibles, numeroDe])
+  const pagNumeros = usePagination(parNumero, TAILLE_GRILLE, [q, tonalite, compositeur])
+  const chantsDuTheme = useMemo(
+    () => (theme === null ? [] : trierParTitre(visibles.filter((c) => (c.categorie || "Non classé") === theme))),
+    [visibles, theme]
+  )
+  const pagTheme = usePagination(chantsDuTheme, TAILLE_LISTE, [q, tonalite, compositeur, theme])
+  const favs = useMemo(() => alphabetiques.filter((c) => favoris.has(cleChant(c))), [alphabetiques, favoris])
+  const pagFavoris = usePagination(favs, TAILLE_LISTE, [q, tonalite, compositeur])
 
   /* ---------- Thèmes ---------- */
   const themes = useMemo(() => {
@@ -205,9 +278,9 @@ export default function ChantsScreen() {
   /** Contenu centré à largeur maximale (tablette), gouttière selon l'écran. */
   const cadre = { maxWidth, paddingHorizontal: gutter, width: "100%" as const, alignSelf: "center" as const }
 
-  const liste = (items: Chant[], { index = false }: { index?: boolean } = {}) => (
+  const liste = (pagination: PaginationEtat<Chant>, { index = false, setPage }: { index?: boolean; setPage?: (page: number) => void } = {}) => (
     <View style={cadre} className={index ? "pr-8" : undefined}>
-      {items.map((c) => {
+      {pagination.pageItems.map((c) => {
         const cle = cleChant(c)
         return (
           <LigneChant
@@ -215,14 +288,15 @@ export default function ChantsScreen() {
             chant={c}
             numero={numeroDe(c)}
             favori={favoris.has(cle)}
-            onLayout={index && premiers.has(cle) ? (y) => positions.current.set(lettreDe(c.titre), y) : undefined}
+            onLayout={index && premiers.has(cle) ? (y) => placerLettre(lettreDe(c.titre), y) : undefined}
           />
         )
       })}
+      <Pagination {...pagination} setPage={setPage ?? pagination.setPage} className="mt-3" />
     </View>
   )
 
-  const aucunResultat = <EmptyState icon={Music} title="Aucun chant trouvé" subtitle="Essayez une autre recherche." />
+  const aucunResultat = <EmptyState icon={Music} title="Aucun chant trouvé" subtitle="Modifiez la recherche ou les filtres." />
 
   return (
     <SafeAreaView className="flex-1 bg-paper" edges={["top"]}>
@@ -251,6 +325,14 @@ export default function ChantsScreen() {
           </Pressable>
         ) : null}
       </View>
+      {optionsTonalite.length > 2 || optionsCompositeur.length > 2 ? (
+        <View style={cadre} className="-mt-1 mb-2">
+          <FormRow2>
+            <Select first label="Tonalité" value={tonalite} onChange={setTonalite} options={optionsTonalite} />
+            <Select first label="Compositeur" value={compositeur} onChange={setCompositeur} options={optionsCompositeur} />
+          </FormRow2>
+        </View>
+      ) : null}
       <View style={cadre}>
         <OfflineBanner className="mb-2" />
       </View>
@@ -269,7 +351,7 @@ export default function ChantsScreen() {
                 for (const l of [...positions.current.keys()]) if (!disponibles.has(l)) positions.current.delete(l)
               }}
             >
-              {alphabetiques.length === 0 ? aucunResultat : liste(alphabetiques, { index: true })}
+              {alphabetiques.length === 0 ? aucunResultat : liste(pagAlpha, { index: true, setPage: pageAlpha })}
             </KeyboardAwareScrollView>
             {alphabetiques.length > 0 ? <IndexAlphabet disponibles={disponibles} onLettre={sauterA} /> : null}
           </>
@@ -280,10 +362,9 @@ export default function ChantsScreen() {
             {visibles.length === 0 ? (
               aucunResultat
             ) : (
-              <View style={cadre} className="flex-row flex-wrap">
-                {[...visibles]
-                  .sort((a, b) => numeroDe(a).localeCompare(numeroDe(b)))
-                  .map((c) => (
+              <View style={cadre}>
+                <View className="flex-row flex-wrap">
+                  {pagNumeros.pageItems.map((c) => (
                     <Pressable
                       key={cleChant(c)}
                       onPress={() => ouvrir(c)}
@@ -294,6 +375,8 @@ export default function ChantsScreen() {
                       <Text className="font-sans-semibold text-[17px] tabular-nums text-ink-soft">{numeroDe(c)}</Text>
                     </Pressable>
                   ))}
+                </View>
+                <Pagination {...pagNumeros} className="mt-3" />
               </View>
             )}
           </KeyboardAwareScrollView>
@@ -339,7 +422,7 @@ export default function ChantsScreen() {
                     <Text className="font-sans text-[14px] text-ink-light"> · {theme}</Text>
                   </Pressable>
                 </View>
-                {liste(trierParTitre(visibles.filter((c) => (c.categorie || "Non classé") === theme)))}
+                {liste(pagTheme)}
               </>
             )}
           </KeyboardAwareScrollView>
@@ -348,9 +431,8 @@ export default function ChantsScreen() {
         {onglet === "favoris" ? (
           <KeyboardAwareScrollView className="flex-1" contentContainerClassName="pb-8" keyboardShouldPersistTaps="handled" refreshControl={refreshControl}>
             {(() => {
-              const favs = alphabetiques.filter((c) => favoris.has(cleChant(c)))
-              if (favs.length > 0) return liste(favs)
-              return q ? (
+              if (favs.length > 0) return liste(pagFavoris)
+              return q || tonalite || compositeur ? (
                 aucunResultat
               ) : (
                 <EmptyState icon={Heart} title="Aucun favori" subtitle="Ouvrez un chant et touchez le cœur pour le retrouver ici." />

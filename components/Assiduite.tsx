@@ -1,13 +1,17 @@
 // Assiduité : résumé (taux, catégorie, totaux) partagé par « Mon assiduité » (Profil) et la section
 // « Présences » du détail d'un compte, calculée sur le téléphone (marche hors ligne).
+import { router } from "expo-router"
 import { useMemo, useState } from "react"
 import { Text, View } from "react-native"
+import { useApp } from "../context/AppContext"
+import { useSheet } from "../context/SheetContext"
 import { useOfflineCollection } from "../hooks/offline"
+import { usePagination } from "../hooks/usePagination"
 import { LIBELLE_TYPE_SEANCE, type CategorieAssiduite, type StatutPresence, type TypeSeance } from "../lib/api"
 import { addDaysISO, formatDateShort, todayLocalISO } from "../lib/format"
-import { seanceRepository } from "../lib/offline/entities"
+import { numeroSeance, seanceRepository } from "../lib/offline/entities"
 import { assiduiteMembre, feuillesUniques, type ResumeAssiduite } from "../lib/presences"
-import { Button, Card, ListRow, Muted, Numeric, Pill, ProgressBar, RowBetween, type PillVariant } from "./ui"
+import { Card, Chip, ChipsRow, ListRow, Muted, Numeric, Pagination, Pill, ProgressBar, RowBetween, type PillVariant } from "./ui"
 
 /** Pastille de la catégorie d'assiduité (seuils de l'API : 75 % et 40 %). */
 export const CATEGORIE_ASSIDUITE: Record<CategorieAssiduite, { label: string; variant: PillVariant }> = {
@@ -53,8 +57,8 @@ const TYPES: { type: TypeSeance; label: string }[] = [
   { type: "EVENEMENT", label: "Événements" },
 ]
 
-/** Séances affichées d'abord, puis à chaque « Voir plus ». */
-const PAGE = 10
+/** Séances par page dans le détail d'un choriste. */
+const PAGE = 20
 
 /**
  * Présences d'un choriste (identifiant d'adhésion) sur les 12 derniers mois, calculées à partir des
@@ -62,11 +66,16 @@ const PAGE = 10
  */
 export function PresencesMembre({ membreId }: { membreId: number }) {
   const { items: seances } = useOfflineCollection(seanceRepository)
-  const [visibles, setVisibles] = useState(PAGE)
+  const { can, events } = useApp()
+  const { closeSheet } = useSheet()
+  // Filtre par statut (null : toutes les séances).
+  const [statut, setStatut] = useState<StatutPresence | null>(null)
   const assiduite = useMemo(
     () => assiduiteMembre(feuillesUniques(seances), membreId, addDaysISO(todayLocalISO(), -365)),
     [seances, membreId]
   )
+  const filtrees = useMemo(() => (statut ? assiduite.seances.filter((s) => s.statut === statut) : assiduite.seances), [assiduite, statut])
+  const pagination = usePagination(filtrees, PAGE, [statut, membreId])
 
   if (assiduite.attendues === 0) {
     return (
@@ -76,7 +85,23 @@ export function PresencesMembre({ membreId }: { membreId: number }) {
     )
   }
 
-  const liste = assiduite.seances.slice(0, visibles)
+  const liste = pagination.pageItems
+
+  /** Ouvre la feuille d'appel de la séance (écran Présences), pour qui peut faire l'appel. */
+  const ouvrirSeance = (localId: string) => {
+    const f = seances.find((s) => s.localId === localId)?.data
+    if (!f) return
+    let params: Record<string, string>
+    if (f.type === "CULTE") params = { vue: "appel", type: "culte", date: f.date, numero: String(numeroSeance(f)) }
+    else if (f.type === "EVENEMENT") {
+      const ev = events.find((e) => (f.evenementId != null && e.id === f.evenementId) || (!!f.evenementLocalId && e.localId === f.evenementLocalId))
+      if (!ev) return
+      params = { vue: "appel", type: "evenement", evenementId: String(ev.id) }
+    } else params = { vue: "appel", type: "repetition", date: f.date }
+    closeSheet()
+    router.push({ pathname: "/presences", params })
+  }
+  const peutOuvrir = can("presences")
   return (
     <Card>
       <ResumeAssiduiteBloc resume={assiduite} categorie={assiduite.categorie} />
@@ -94,6 +119,18 @@ export function PresencesMembre({ membreId }: { membreId: number }) {
         })}
       </View>
 
+      <ChipsRow className="mb-0 mt-3">
+        <Chip label={`Toutes (${assiduite.seances.length})`} active={statut === null} onPress={() => setStatut(null)} />
+        {(Object.keys(STATUT_PRESENCE) as StatutPresence[]).map((st) => (
+          <Chip
+            key={st}
+            label={`${STATUT_PRESENCE[st].label}s (${assiduite.seances.filter((s) => s.statut === st).length})`}
+            active={statut === st}
+            onPress={() => setStatut(statut === st ? null : st)}
+          />
+        ))}
+      </ChipsRow>
+
       <View className="mt-2">
         {liste.map((s, i) => (
           <ListRow
@@ -102,19 +139,13 @@ export function PresencesMembre({ membreId }: { membreId: number }) {
             title={s.libelle}
             subtitle={`${LIBELLE_TYPE_SEANCE[s.type] ?? "Séance"} · ${formatDateShort(s.date)}${s.motif ? ` · ${s.motif}` : ""}`}
             right={<Pill variant={STATUT_PRESENCE[s.statut].variant}>{STATUT_PRESENCE[s.statut].label}</Pill>}
+            onPress={peutOuvrir ? () => ouvrirSeance(s.localId) : undefined}
+            accessibilityLabel={peutOuvrir ? `${s.libelle}, ${formatDateShort(s.date)}, ${STATUT_PRESENCE[s.statut].label}. Ouvrir la feuille d'appel` : undefined}
           />
         ))}
       </View>
-      {assiduite.seances.length > visibles ? (
-        <Button
-          title={`Voir plus (${assiduite.seances.length - visibles})`}
-          variant="ghost"
-          small
-          block
-          className="mt-1"
-          onPress={() => setVisibles((n) => n + PAGE)}
-        />
-      ) : null}
+      {liste.length === 0 ? <Muted className="mt-1">Aucune séance avec ce statut.</Muted> : null}
+      <Pagination {...pagination} className="mb-0 mt-2" />
     </Card>
   )
 }

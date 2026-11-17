@@ -112,3 +112,14 @@ export function nextEvent(events: Evenement[]): Evenement | undefined {
   const sorted = events.filter((e) => e.date).sort((a, b) => a.date.localeCompare(b.date))
   return sorted.find((e) => e.date >= today) ?? sorted[sorted.length - 1]
 }
+
+/** Texte en minuscules sans accents, pour la recherche (« Élevé » → « eleve »). */
+export function sansAccents(texte: string) {
+  return texte.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
+}
+
+/** Vrai si la recherche (accents et casse ignorés) apparaît dans l'un des champs ; recherche vide : toujours vrai. */
+export function correspondRecherche(recherche: string, ...champs: (string | null | undefined)[]) {
+  const q = sansAccents(recherche.trim())
+  return !q || champs.some((c) => !!c && sansAccents(c).includes(q))
+}
