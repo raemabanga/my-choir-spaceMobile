@@ -2,7 +2,7 @@
 // attribution de rôle et affichage du mot de passe temporaire.
 // Équivalent mobile des modales du web (components/portail/modals/*compte*, *role*, *mdp*).
 
-import { Ban, Check, Eye, EyeOff, KeyRound, Pencil, RotateCcw, ShieldPlus, Trash2 } from "lucide-react-native"
+import { Ban, Check, Download, Eye, EyeOff, KeyRound, Pencil, Receipt, RotateCcw, ShieldPlus, Trash2 } from "lucide-react-native"
 import React, { useMemo, useState, useSyncExternalStore } from "react"
 import { Pressable, Text, View } from "react-native"
 import { colors } from "../../constants/theme"
@@ -25,14 +25,19 @@ import {
 import { dataChanged } from "../../lib/offline"
 import { compteRepository } from "../../lib/offline/entities"
 import { PresencesMembre } from "../Assiduite"
+import { dettesMembre } from "../../lib/dettes"
+import { telechargerFichePdf } from "../../lib/fichePdf"
+import { recuPdfDepuis, telechargerRecusPdf } from "../../lib/recuPdf"
 import {
   depuisFiche,
+  GENRES,
   libelle,
   SITUATIONS_MATRIMONIALES,
   SITUATIONS_SOCIALES,
   STATUTS_EGLISE,
   TYPES_MARIAGE,
   validerFiche,
+  VOIX,
   versFiche,
   type ErreursFiche,
   type FicheChoriste,
@@ -216,10 +221,13 @@ function Confirmation({
 /* ------------------------------------ Fiche d'inscription ------------------------------------ */
 
 /** Lignes renseignées de la fiche, regroupées comme sur la fiche papier. */
-function lignesFiche(f: FicheChoriste): [string, string][] {
+export function lignesFiche(f: FicheChoriste): [string, string][] {
   const joindre = (...v: (string | false | undefined)[]) => v.filter(Boolean).join(" · ")
   const types = f.typesMariage?.length ? ` (${f.typesMariage.map((t) => libelle(TYPES_MARIAGE, t)?.toLowerCase()).join(", ")})` : ""
   const lignes: [string, string | undefined][] = [
+    ["Genre", libelle(GENRES, f.genre)],
+    ["Voix", libelle(VOIX, f.voix)],
+    ["Instrumentiste", f.instrumentiste ? "Oui" : undefined],
     ["Naissance", joindre(f.dateNaissance && dateCourte(f.dateNaissance), f.lieuNaissance)],
     ["Adresse", f.adresse],
     ["Quartier / zone", [f.quartier, f.zone && `zone ${f.zone}`].filter(Boolean).join(", ")],
@@ -284,9 +292,13 @@ export function CompteDetailSheet({ compteId }: { compteId: number }) {
   const { toast } = useToast()
   const comptes = useComptes()
   const droitsSur = useDroitsCompte()
-  const { can, session } = useApp()
+  const { can, session, choraleNom, statutaireParAnnee, nonDuParAnnee, mensualite, events, receiptsFor, parametres } = useApp()
+  const [recusEnCours, setRecusEnCours] = useState(false)
+  const [pdfEnCours, setPdfEnCours] = useState(false)
   // Lecture des présences : rôles de l'appel, et l'admin de chorale (règle de l'API : PRESENCE_ROLES.lecture).
-  const voitPresences = can("presences") || !!session?.roles.includes("admin_chorale")
+  // La trésorière les consulte aussi (fiche complète du choriste, en lecture seule).
+  const voitPresences = can("presences") || !!session?.roles.includes("admin_chorale") || !!session?.roles.includes("tresorier")
+  const lectureSeule = !can("comptes")
   const [demande, setDemande] = useState<Demande>(null)
   const [busy, setBusy] = useState(false)
   const [erreur, setErreur] = useState<string | null>(null)
@@ -349,6 +361,56 @@ export function CompteDetailSheet({ compteId }: { compteId: number }) {
 
   const aucuneAction = !d.peutModifier && !d.peutChangerStatut && !d.peutReinitialiser
 
+  /** Reçus du choriste (hors paiements refusés), tous dans un PDF : trois par page A4. */
+  const voitRecus = can("paiements") || can("cotisations")
+  const recusDuMembre = receiptsFor(compte.membershipId).filter((r) => r.syncStatus !== "failed")
+  const telechargerRecus = async () => {
+    setRecusEnCours(true)
+    try {
+      const libelleMode = (code: string) => parametres.modesReglement.find((m) => m.code === code)?.label ?? code
+      await telechargerRecusPdf(
+        recusDuMembre.map((r) => recuPdfDepuis(r, { choraleNom, choriste: compte.nom, libelleMode })),
+        compte.nom
+      )
+    } catch (e) {
+      toast(e instanceof Error && e.message ? e.message : "La génération des reçus a échoué. Réessayez.")
+    } finally {
+      setRecusEnCours(false)
+    }
+  }
+
+  /** Fiche PDF : identité, fiche d'inscription et dettes (rôles qui voient les cotisations). */
+  const telechargerFiche = async () => {
+    setPdfEnCours(true)
+    try {
+      const etat = etatCompte(compte)
+      const identite: [string, string][] = [
+        ["Nom", compte.nomDeFamille || "—"],
+        ["Prénom", compte.prenom || "—"],
+        ["Téléphone", compte.telephone || "—"],
+        ["Email", compte.email || "—"],
+        ["Rôles", compte.roles.map((r) => ROLE_LABEL[r]).join(", ")],
+        ["Statut", etat ? ETAT_COMPTE[etat].label : actif ? "Actif" : "Désactivé"],
+      ]
+      const participation = texteParticipation(compte)
+      if (participation) identite.push(["Participation", participation])
+      const voitCotisations = can("cotisations") || can("paiements")
+      await telechargerFichePdf({
+        choraleNom,
+        nom: compte.nom,
+        identite,
+        fiche,
+        dettes: voitCotisations
+          ? dettesMembre(compte.membershipId, { statutaireParAnnee, nonDuParAnnee, mensualite, events }).dettes
+          : null,
+      })
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Le PDF n'a pas pu être créé.")
+    } finally {
+      setPdfEnCours(false)
+    }
+  }
+
   return (
     <View>
       <SheetTitle>
@@ -361,6 +423,27 @@ export function CompteDetailSheet({ compteId }: { compteId: number }) {
       </View>
       {texteParticipation(compte) ? <Muted className="mt-1">{texteParticipation(compte)}</Muted> : null}
       {d.estAdminProtege ? <Muted className="mt-1">Géré depuis le back-office.</Muted> : null}
+
+      <Button
+        title={pdfEnCours ? "Préparation du PDF…" : "Télécharger la fiche (PDF)"}
+        icon={Download}
+        variant="outline"
+        block
+        className="mt-3"
+        disabled={pdfEnCours}
+        onPress={telechargerFiche}
+      />
+      {voitRecus && recusDuMembre.length > 0 ? (
+        <Button
+          title={recusEnCours ? "Préparation des reçus…" : `Télécharger ses reçus (${recusDuMembre.length}) en PDF`}
+          icon={Receipt}
+          variant="ghost"
+          block
+          className="mt-1"
+          disabled={recusEnCours}
+          onPress={telechargerRecus}
+        />
+      ) : null}
 
       <SectionHeader title="Coordonnées" />
       <Card>
@@ -495,7 +578,9 @@ export function CompteDetailSheet({ compteId }: { compteId: number }) {
 
       <ErrorBanner message={erreur} />
 
-      {aucuneAction && !d.estAdminProtege ? (
+      {lectureSeule ? (
+        <Muted className="mt-4">Consultation seule : la gestion des comptes revient à l'Admin de chorale, au Bureau exécutif et au Secrétariat.</Muted>
+      ) : aucuneAction && !d.estAdminProtege ? (
         <Muted className="mt-4">Vous ne pouvez pas modifier ce compte : seuls l'Admin de chorale, le Bureau exécutif et le Secrétariat gèrent les comptes à mandat.</Muted>
       ) : null}
 

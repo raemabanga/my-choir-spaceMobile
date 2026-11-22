@@ -20,6 +20,8 @@ import {
   type EtatCompte,
 } from "../components/sheets/CompteSheets"
 import { Avatar, Button, Card, Chevron, Chip, ChipsRow, EmptyState, Muted, Pagination, Pill, SearchBar, Select } from "../components/ui"
+import { FiltresGenreVoix, FILTRE_GENRE_VOIX_DEFAUT, filtrerGenreVoix } from "../components/FiltresGenreVoix"
+import { GENRES, libelle, VOIX } from "../lib/fiche"
 import { colors } from "../constants/theme"
 import { useApp } from "../context/AppContext"
 import { useSheet } from "../context/SheetContext"
@@ -48,6 +50,12 @@ const plat = (s: string) =>
     .toLowerCase()
 
 /** Carte d'un compte dans la liste. */
+/** « Soprano · Femme · Instrumentiste », vide si rien n'est renseigné. */
+function pupitre(c: Compte) {
+  const f = c.fiche ?? {}
+  return [libelle(VOIX, f.voix), libelle(GENRES, f.genre), f.instrumentiste ? "Instrumentiste" : undefined].filter(Boolean).join(" · ")
+}
+
 function CompteCard({ compte, estMoi, protege, onPress }: { compte: Compte; estMoi: boolean; protege: boolean; onPress: () => void }) {
   const etat = etatCompte(compte)
   return (
@@ -63,6 +71,7 @@ function CompteCard({ compte, estMoi, protege, onPress }: { compte: Compte; estM
             {estMoi ? <Text className="font-sans text-ink-light"> (vous)</Text> : null}
           </Text>
           {compte.telephone ? <Text className="mt-0.5 font-sans text-[12px] tabular-nums text-ink-soft">{compte.telephone}</Text> : null}
+          {pupitre(compte) ? <Text className="mt-0.5 font-sans text-[12px] text-ink-light">{pupitre(compte)}</Text> : null}
         </View>
         <Chevron />
       </View>
@@ -93,7 +102,9 @@ export default function ComptesScreen() {
   const { openSheet } = useSheet()
   const comptes = useComptes()
   const droitsSur = useDroitsCompte()
-  const autorise = can("comptes")
+  // Trésorière : liste et fiches en lecture seule (comptesVoir sans comptes).
+  const autorise = can("comptesVoir")
+  const gere = can("comptes")
 
   const { isOnline } = useSyncSummary()
   const [loading, setLoading] = useState(true)
@@ -103,6 +114,7 @@ export default function ComptesScreen() {
   const [filtre, setFiltre] = useState<Filtre>("tous")
   // Rôle filtré ("" : tous les rôles).
   const [role, setRole] = useState<Role | "">("")
+  const [genreVoix, setGenreVoix] = useState(FILTRE_GENRE_VOIX_DEFAUT)
 
   /** Met à jour la copie locale depuis le serveur (sans réseau : la copie du téléphone reste affichée). */
   const charger = useCallback(async () => {
@@ -148,16 +160,17 @@ export default function ComptesScreen() {
     return comptes.filter((c) => {
       if (filtre !== "tous" && etatCompte(c) !== filtre) return false
       if (role && !c.roles.includes(role)) return false
+      if (!filtrerGenreVoix(c.fiche ?? {}, genreVoix)) return false
       if (!q) return true
       return plat(c.nom).includes(q) || plat(c.email).includes(q) || (qChiffres.length > 0 && c.telephone.replace(/\D/g, "").includes(qChiffres))
     })
-  }, [comptes, recherche, filtre, role])
+  }, [comptes, recherche, filtre, role, genreVoix])
 
-  const pagination = usePagination(visibles, 20, [recherche, filtre, role])
+  const pagination = usePagination(visibles, 20, [recherche, filtre, role, genreVoix])
 
   return (
     <SafeAreaView className="flex-1 bg-paper" edges={["top"]}>
-      <BackHeader title="Comptes & Rôles" />
+      <BackHeader title={gere || !autorise ? "Comptes & Rôles" : "Choristes"} />
       <KeyboardAwareScrollView
         className="flex-1 bg-surface"
         contentContainerClassName="pb-7 pt-4"
@@ -171,10 +184,10 @@ export default function ComptesScreen() {
       >
         <Container>
           {!autorise ? (
-            <EmptyState icon={Lock} title="Accès réservé" subtitle="La gestion des comptes est réservée à l’Admin de chorale, au Bureau exécutif et au Secrétaire général." />
+            <EmptyState icon={Lock} title="Accès réservé" subtitle="La liste des comptes est réservée à l’Admin de chorale, au Bureau exécutif, au Secrétaire général et à la Trésorière." />
           ) : (
             <>
-              {isOnline ? (
+              {!gere ? null : isOnline ? (
                 <Button title="+ Créer un compte" block className="mb-3.5" onPress={() => openSheet(<CompteFormSheet />)} />
               ) : (
                 // Hors ligne : la liste enregistrée sur le téléphone reste consultable.
@@ -210,6 +223,7 @@ export default function ComptesScreen() {
                   />
                 </View>
               ) : null}
+              <FiltresGenreVoix value={genreVoix} onChange={setGenreVoix} />
 
               {erreur ? (
                 <View accessibilityLiveRegion="polite" className="mb-3.5 rounded-card border border-danger bg-danger-bg p-3.5">
@@ -236,7 +250,7 @@ export default function ComptesScreen() {
                 <EmptyState
                   icon={UserRound}
                   title={comptes.length === 0 ? "Aucun compte" : "Aucun résultat"}
-                  subtitle={comptes.length === 0 ? "Créez le premier compte de la chorale." : "Modifiez la recherche ou le filtre."}
+                  subtitle={comptes.length === 0 ? (gere ? "Créez le premier compte de la chorale." : "Aucun choriste enregistré.") : "Modifiez la recherche ou le filtre."}
                 />
               ) : (
                 <>

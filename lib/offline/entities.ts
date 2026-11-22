@@ -115,6 +115,9 @@ export interface PresenceMembreData {
   nom: string
   /** "AAAA-MM-JJ", informatif seulement (pas de filtre). */
   joinedAt: string
+  /** Filtres de la feuille d'appel (absents des enregistrements plus anciens). */
+  genre?: api.Genre | null
+  voix?: api.Voix | null
 }
 
 export interface LigneSeance {
@@ -128,11 +131,16 @@ export interface SeanceData {
   type: api.TypeSeance
   /** "AAAA-MM-JJ" (heure locale). */
   date: string
-  /** Répétitions et cultes (« Répétition générale », « Culte de 7 h ») ; null sinon. */
+  /** Répétitions et cultes (« Répétition générale », « Messe des jeunes ») ; null sinon. */
   titre: string | null
   /**
-   * Cultes seulement : numéro dans la journée (1 à 5) ; null sinon. Absent des enregistrements
-   * antérieurs aux cultes : toujours lire avec `numeroSeance`.
+   * Répétitions et cultes : heure de début "HH:MM" (plusieurs séances par jour). Null ou absent sur
+   * les anciennes feuilles, prises avant l'heure : lire le créneau avec `creneauSeance`.
+   */
+  heure?: string | null
+  /**
+   * Anciennes feuilles de culte (sans heure) : numéro dans la journée (1 à 5) ; null sinon.
+   * Toujours lire avec `numeroSeance`.
    */
   numero?: number | null
   evenementId: number | null
@@ -200,14 +208,28 @@ const toChantData = (c: api.ApiChant): ChantData => ({
   audio: c.audio ?? null,
 })
 
-/** Numéro d'une séance : celui du culte, null pour les autres types (et les anciens enregistrements). */
-export const numeroSeance = (data: Pick<SeanceData, "type" | "numero">): number | null =>
-  data.type === "CULTE" ? (data.numero ?? null) : null
+/** Numéro d'une ancienne feuille de culte (sans heure) ; null sinon. */
+export const numeroSeance = (data: Pick<SeanceData, "type" | "numero" | "heure">): number | null =>
+  data.type === "CULTE" && !data.heure ? (data.numero ?? null) : null
+
+/** Heure d'une répétition ou d'un culte ("HH:MM"), null pour un événement ou une ancienne feuille. */
+export const heureSeance = (data: Pick<SeanceData, "type" | "heure">): string | null =>
+  data.type === "EVENEMENT" ? null : (data.heure ?? null)
+
+/**
+ * Ce qui distingue deux séances du même type le même jour, comme la clé de l'API : l'heure ; pour
+ * une ancienne feuille, « #n » (numéro du culte) ou « # » (répétition du jour). Vide pour un événement.
+ */
+export function creneauSeance(data: Pick<SeanceData, "type" | "heure" | "numero">): string {
+  if (data.type === "EVENEMENT") return ""
+  return heureSeance(data) ?? `#${numeroSeance(data) ?? ""}`
+}
 
 const toSeanceData = (s: api.Seance): SeanceData => ({
   type: s.type,
   date: s.date,
   titre: s.titre,
+  heure: s.type === "EVENEMENT" ? null : (s.heure ?? null),
   numero: s.type === "CULTE" ? (s.numero ?? null) : null,
   evenementId: s.evenement?.id ?? null,
   evenementLocalId: null,
@@ -223,6 +245,7 @@ const feuilleToSeanceData = (f: api.FeuillePresence): SeanceData => ({
   type: f.type,
   date: f.seance?.date ?? f.date,
   titre: f.seance?.titre ?? null,
+  heure: f.type === "EVENEMENT" ? null : (f.seance?.heure ?? null),
   numero: f.type === "CULTE" ? (f.seance?.numero ?? null) : null,
   evenementId: f.evenement?.id ?? null,
   evenementLocalId: null,
@@ -235,10 +258,14 @@ const feuilleToSeanceData = (f: api.FeuillePresence): SeanceData => ({
   serveurMajLe: f.seance?.majLe ?? null,
 })
 
-/** Corps envoyé à PUT /espace/presences/feuille (hors type et événement). Intitulé : répétition et culte ; numéro : culte. */
+/**
+ * Corps envoyé à PUT /espace/presences/feuille (hors type et événement). Intitulé et heure :
+ * répétition et culte ; numéro : ancienne feuille de culte sans heure.
+ */
 const aEnvoyer = (data: SeanceData): api.FeuilleAEnvoyer => ({
   date: data.date,
   titre: data.type === "EVENEMENT" ? null : data.titre,
+  heure: heureSeance(data),
   numero: numeroSeance(data),
   presences: data.presences.map(({ membreId, statut, motif }) => ({ membreId, statut, motif: statut === "EXCUSE" ? motif : null })),
   base: data.serveurMajLe ?? null,
@@ -419,7 +446,10 @@ export const chantRepository = defineOfflineEntity<ChantData>("chants", {
 export const presenceMembreRepository = defineOfflineEntity<PresenceMembreData>("presenceMembres", {
   label: "Choristes à appeler",
   order: 9,
-  pull: async () => (await api.fetchPresenceMembres()).map((m) => record(m.id, { nom: m.nom, joinedAt: m.joinedAt })),
+  pull: async () =>
+    (await api.fetchPresenceMembres()).map((m) =>
+      record(m.id, { nom: m.nom, joinedAt: m.joinedAt, genre: m.genre ?? null, voix: m.voix ?? null })
+    ),
 })
 
 /**
@@ -438,7 +468,7 @@ export const seanceRepository = defineOfflineEntity<SeanceData>("seances", {
   create: async (data) => {
     const evenementId = data.type === "EVENEMENT" ? evenementServeur(data) : null
     if (data.type === "EVENEMENT" && evenementId == null) throw erreurDefinitive("Événement introuvable pour cette feuille de présence")
-    verifierNumero(data)
+    verifierCreneau(data)
     // Feuille de même clé supprimée sur ce téléphone, suppression pas encore acceptée : partir avant
     // ferait fusionner l'appel dans l'ancienne feuille, que le DELETE (réessayé) effacerait ensuite.
     if (suppressionEnAttente(data, evenementId)) {
@@ -452,7 +482,7 @@ export const seanceRepository = defineOfflineEntity<SeanceData>("seances", {
   update: async (serverId, data) => {
     const evenementId = data.type === "EVENEMENT" ? (data.evenementId ?? evenementServeur(data)) : null
     if (data.type === "EVENEMENT" && evenementId == null) throw erreurDefinitive("Événement introuvable pour cette feuille de présence")
-    verifierNumero(data)
+    verifierCreneau(data)
     return envoyerFeuille(data, evenementId, serverId)
   },
   remove: async (serverId) => {
@@ -497,8 +527,14 @@ async function envoyerFeuille(data: SeanceData, evenementId: number | null, serv
   return { serverId: seance.id, data: feuilleToSeanceData(f), updatedAt: seance.majLe }
 }
 
-/** Culte sans numéro valide : l'API répondrait 400, inutile de réessayer. */
-function verifierNumero(data: SeanceData) {
+/** Heure invalide, ou ancien culte sans heure ni numéro valide : l'API répondrait 400, inutile de réessayer. */
+function verifierCreneau(data: SeanceData) {
+  if (data.type === "EVENEMENT") return
+  const heure = heureSeance(data)
+  if (heure) {
+    if (!api.heureValide(heure)) throw erreurDefinitive("Heure invalide pour cette feuille de présence")
+    return
+  }
   if (data.type !== "CULTE") return
   const numero = numeroSeance(data)
   if (numero == null || !Number.isInteger(numero) || numero < 1 || numero > api.NUMERO_CULTE_MAX) {
@@ -507,15 +543,14 @@ function verifierNumero(data: SeanceData) {
 }
 
 /**
- * Une feuille de même clé (répétition : jour ; culte : jour et numéro ; événement) est supprimée sur
- * le téléphone et sa suppression n'est pas encore acceptée.
+ * Une feuille de même clé (répétition ou culte : jour et heure ; événement) est supprimée sur le
+ * téléphone et sa suppression n'est pas encore acceptée.
  */
 function suppressionEnAttente(data: SeanceData, evenementId: number | null): boolean {
   const { type, date } = data
   return seanceRepository.getDeleted().some((s) => {
     if (s.syncStatus === "synced" || s.data.type !== type) return false
-    if (type === "REPETITION") return s.data.date === date
-    if (type === "CULTE") return s.data.date === date && numeroSeance(s.data) === numeroSeance(data)
+    if (type !== "EVENEMENT") return s.data.date === date && creneauSeance(s.data) === creneauSeance(data)
     if (evenementId == null) return false
     if (s.data.evenementId === evenementId) return true
     const ev = s.data.evenementLocalId ? evenementRepository.getByLocalId(s.data.evenementLocalId) : null

@@ -283,6 +283,11 @@ export async function fetchComptes() {
   return (await request<ApiCompte[]>("/espace/comptes")).map(toCompte)
 }
 
+/** Le compte du membre connecté (sa fiche, ses rôles) : tous les membres. */
+export async function fetchMonCompte() {
+  return toCompte(await request<ApiCompte>("/espace/me/compte"))
+}
+
 export interface NouveauCompte {
   prenom: string
   nom: string
@@ -644,25 +649,41 @@ export function supprimerChant(id: number) {
 // Faire l'appel : bureau, secrétariat, commission recette et commission présence (l'admin lit
 // seulement, aucun écran mobile). « Mon assiduité » : tous les membres.
 
-/** CULTE : plusieurs par jour, numérotés de 1 à NUMERO_CULTE_MAX (`numero`). */
+/** Répétitions et cultes : plusieurs par jour, distingués par leur heure (`heure`, "HH:MM"). */
 export type TypeSeance = "REPETITION" | "EVENEMENT" | "CULTE"
 
-/** Nombre maximal de cultes dans une journée (numéros 1 à 5, comme l'API). */
+/** Anciennes feuilles de culte (prises avant l'heure) : numéro dans la journée, 1 à 5. */
 export const NUMERO_CULTE_MAX = 5
 
 /** Libellé d'un type de séance (« Répétition », « Culte », « Événement »). */
 export const LIBELLE_TYPE_SEANCE: Record<TypeSeance, string> = { REPETITION: "Répétition", CULTE: "Culte", EVENEMENT: "Événement" }
 
-/** Nom d'un culte d'après son numéro, comme le `libelle` de l'API : 1 → « 1er culte », n → « ne culte ». */
-export const nomCulte = (numero: number | null | undefined) => `${numero ?? 1}${(numero ?? 1) === 1 ? "er" : "e"} culte`
+/** Heure proposée par défaut pour un nouvel appel. */
+export const HEURE_DEFAUT: Record<Exclude<TypeSeance, "EVENEMENT">, string> = { REPETITION: "18:00", CULTE: "09:00" }
+
+/** "HH:MM" valide (00:00 à 23:59), comme l'API. */
+export const heureValide = (v: string | null | undefined): v is string => !!v && /^([01]\d|2[0-3]):[0-5]\d$/.test(v)
+
+/** "07:30" → « 7h30 », comme le `libelle` de l'API. */
+export function heureFr(heure: string) {
+  const [h, m] = heure.split(":")
+  return `${Number(h)}h${m}`
+}
+
 export type StatutPresence = "PRESENT" | "EXCUSE" | "ABSENT"
 export type CategorieAssiduite = "ASSIDU" | "IRREGULIER" | "DECROCHEUR"
+
+export type Genre = "FEMME" | "HOMME"
+export type Voix = "SOPRANO" | "ALTO" | "TENOR" | "BASSE"
 
 export interface PresenceMembre {
   id: number
   nom: string
   /** "AAAA-MM-JJ", informatif seulement. */
   joinedAt: string
+  /** Absents d'une API pas encore mise à jour. */
+  genre?: Genre | null
+  voix?: Voix | null
 }
 
 export interface LignePresence {
@@ -672,17 +693,19 @@ export interface LignePresence {
   motif: string | null
 }
 
-/** Feuille de présence enregistrée (une répétition par jour, un culte par (jour, numéro), une feuille par événement). */
+/** Feuille de présence enregistrée (répétition ou culte : un par (jour, heure) ; une feuille par événement). */
 export interface Seance {
   id: number
   type: TypeSeance
   /** "AAAA-MM-JJ" */
   date: string
-  /** Répétition et culte (« Culte de 7 h ») ; null pour un événement. */
+  /** Répétition et culte (« Messe des jeunes ») ; null pour un événement. */
   titre: string | null
-  /** Numéro du culte dans la journée (1 à 5) ; null pour les autres types. */
+  /** Ancienne feuille de culte (sans heure) : numéro dans la journée ; null sinon. */
   numero: number | null
-  /** Culte : titre ?? « 1er culte », « 2e culte »… */
+  /** Répétition et culte : heure "HH:MM" (null : événement, ancienne feuille ou API pas à jour). */
+  heure?: string | null
+  /** titre ?? « Culte de 7h30 », « Répétition de 18h00 »… */
   libelle: string
   evenement: { id: number; titre: string } | null
   presents: number
@@ -721,7 +744,9 @@ export interface FeuilleAEnvoyer {
   date: string
   /** Répétition et culte (ignoré par l'API pour un événement). */
   titre: string | null
-  /** Culte seulement (1 à 5, obligatoire) ; null pour les autres types. */
+  /** Répétition et culte : heure "HH:MM" ; null pour un événement (et une ancienne feuille). */
+  heure: string | null
+  /** Ancienne feuille de culte sans heure : son numéro (1 à 5) ; null sinon. */
   numero: number | null
   presences: { membreId: number; statut: StatutPresence; motif: string | null }[]
   /** `majLe` serveur de la version de départ (null : aucune séance vue). */
@@ -747,7 +772,7 @@ export function fetchSeances(du: string) {
   return request<Seance[]>(`/espace/presences/seances?du=${du}&avecPresences=true`)
 }
 
-/** Crée, remplace ou fusionne la feuille (clé : répétition du jour, culte (jour, numéro), ou événement). Seule écriture : sert à la création et à la modification. */
+/** Crée, remplace ou fusionne la feuille (clé : répétition ou culte (jour, heure), ou événement). Seule écriture : sert à la création et à la modification. */
 export function enregistrerFeuille(body: FeuilleAEnvoyer & { type: TypeSeance; evenementId: number | null }) {
   return request<FeuillePresence>("/espace/presences/feuille", { method: "PUT", body: JSON.stringify(body) })
 }

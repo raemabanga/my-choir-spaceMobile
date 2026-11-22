@@ -24,6 +24,9 @@ export function computePerms(roles: Role[]): Perms {
   const has = (r: Role) => roles.includes(r)
   return {
     comptes: has("admin_chorale") || has("bureau") || has("secretaire"),
+    // Consulter la liste des choristes et leur fiche : gestionnaires des comptes, et la trésorière
+    // en lecture seule (règle de l'API : GET /espace/comptes).
+    comptesVoir: has("admin_chorale") || has("bureau") || has("secretaire") || has("tresorier"),
     // Admin, bureau et secrétariat : tous les droits sur les comptes (rôles, mot de passe, statut).
     comptesFull: has("admin_chorale") || has("bureau") || has("secretaire"),
     evenements: has("bureau") || has("tresorier") || has("secretaire"),

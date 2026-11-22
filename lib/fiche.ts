@@ -15,6 +15,9 @@ export type SituationSociale =
   | "RETRAITE"
   | "AUTRE"
 
+export type Genre = "FEMME" | "HOMME"
+export type Voix = "SOPRANO" | "ALTO" | "TENOR" | "BASSE"
+
 /** Every field is optional. Dates are "YYYY-MM-DD". */
 export interface FicheChoriste {
   dateNaissance?: string
@@ -33,6 +36,11 @@ export interface FicheChoriste {
   profession?: string
   secteurActivite?: string
   precedentesChorales?: string
+  genre?: Genre
+  /** Pupitre. */
+  voix?: Voix
+  /** Joue d'un instrument pour la chorale. */
+  instrumentiste?: boolean
 }
 
 export const SITUATIONS_MATRIMONIALES: [SituationMatrimoniale, string][] = [
@@ -60,6 +68,17 @@ export const SITUATIONS_SOCIALES: [SituationSociale, string][] = [
   ["TRAVAILLEUR_PUBLIC", "Travailleur – Public"],
   ["RETRAITE", "Retraité(e)"],
   ["AUTRE", "Autre"],
+]
+
+export const GENRES: [Genre, string][] = [
+  ["FEMME", "Femme"],
+  ["HOMME", "Homme"],
+]
+export const VOIX: [Voix, string][] = [
+  ["SOPRANO", "Soprano"],
+  ["ALTO", "Alto"],
+  ["TENOR", "Ténor"],
+  ["BASSE", "Basse"],
 ]
 
 export const libelle = <T extends string>(options: [T, string][], v: T | undefined) =>
@@ -127,7 +146,8 @@ export function ficheDepuisApi(f: Record<string, unknown> | null | undefined): F
 }
 
 /** The fiche has at least one field filled in. */
-export const ficheRemplie = (f: FicheChoriste | undefined) => !!f && Object.keys(f).length > 0
+export const ficheRemplie = (f: FicheChoriste | undefined) =>
+  !!f && Object.entries(f).some(([cle, v]) => !(cle === "instrumentiste" && v === false))
 
 /** "YYYY-MM-DD" → local Date (no time zone shift). */
 export function versDate(iso: string) {

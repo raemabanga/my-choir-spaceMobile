@@ -7,7 +7,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { AppState } from "react-native"
 import * as api from "../lib/api"
-import { currentYear, MONTHS } from "../lib/format"
+import { currentYear, fmt, MONTHS } from "../lib/format"
 import { cacheSession, clearCachedSession, dataChanged, readCachedSession, syncManager, useSyncStatusStore } from "../lib/offline"
 import {
   chantRepository,
@@ -448,6 +448,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     async (eventId: number, chorishId: number, amount: number, details: api.DetailsPaiement) => {
       const { ev } = evenementLocal(eventId)
       const membre = chorists.find((c) => c.id === chorishId)
+      // Même règle que le serveur : la cotisation d'un événement ne s'encaisse qu'une fois
+      // (paiements en attente d'envoi compris) ; un versement en plusieurs fois reste possible.
+      const dejaPaye = ev.contributions[chorishId] ?? 0
+      const nom = membre?.name ?? "Ce choriste"
+      if (ev.cotisationMontant > 0 ? dejaPaye >= ev.cotisationMontant : dejaPaye > 0) {
+        throw refus(`${nom} a déjà payé sa cotisation pour « ${ev.titre} » (${fmt(dejaPaye)} encaissés).`)
+      }
+      if (ev.cotisationMontant > 0 && amount > ev.cotisationMontant - dejaPaye) {
+        throw refus(`Il ne reste que ${fmt(ev.cotisationMontant - dejaPaye)} à payer pour « ${ev.titre} » (${fmt(dejaPaye)} déjà encaissés).`)
+      }
       paiementRepository.create({
         type: "EVENEMENTIELLE",
         membreId: chorishId,

@@ -12,15 +12,15 @@ import { BackHeader } from "../components/AppHeader"
 import { DateField } from "../components/DateField"
 import { Container } from "../components/layout"
 import {
-  ChoixCulte,
   ExcuseSheet,
+  heuresPrises,
   NouvelAppelSheet,
-  premierCulteLibre,
   seanceDeEvenement,
   seanceDuJour,
   totauxSeance,
   type CleAppel,
 } from "../components/sheets/PresenceSheets"
+import { TimeField } from "../components/TimeField"
 import { OfflineBanner, RecordSyncBadge } from "../components/sync"
 import {
   Avatar,
@@ -48,10 +48,11 @@ import { useSheet } from "../context/SheetContext"
 import { useToast } from "../context/ToastContext"
 import { useOfflineCollection } from "../hooks/offline"
 import { usePagination } from "../hooks/usePagination"
-import { NUMERO_CULTE_MAX, nomCulte, type StatutPresence, type TypeSeance } from "../lib/api"
+import { HEURE_DEFAUT, heureValide, NUMERO_CULTE_MAX, type Genre, type StatutPresence, type TypeSeance, type Voix } from "../lib/api"
+import { FiltresGenreVoix, FILTRE_GENRE_VOIX_DEFAUT, filtrerGenreVoix } from "../components/FiltresGenreVoix"
 import { correspondRecherche, formatDateLong, formatDateShort, localISODate, MONTHS, parseLocalISODate, todayLocalISO } from "../lib/format"
 import { syncManager, type OfflineRecord } from "../lib/offline"
-import { evenementRepository, numeroSeance, presenceMembreRepository, seanceRepository, type SeanceData } from "../lib/offline/entities"
+import { evenementRepository, heureSeance, numeroSeance, presenceMembreRepository, seanceRepository, type SeanceData } from "../lib/offline/entities"
 import { feuillesUniques, libelleSeance } from "../lib/presences"
 import type { Evenement } from "../types"
 
@@ -67,7 +68,7 @@ const TYPE_FILTRE: Record<Exclude<FiltreHistorique, "toutes">, TypeSeance> = {
 }
 type Ligne = { statut: StatutPresence; motif: string | null }
 type Brouillon = Map<number, Ligne>
-/** Clé d'une feuille : la répétition d'un jour, un culte (jour et numéro), ou un événement (sa date n'en fait pas partie). */
+/** Clé d'une feuille : une répétition ou un culte (jour et heure), ou un événement (sa date n'en fait pas partie). */
 type Cle = Exclude<CleAppel, { type: "EVENEMENT" }> | { type: "EVENEMENT"; eventId: number | null }
 /** Clé de recherche d'une feuille (événement déjà retrouvé). */
 type Recherche = Exclude<CleAppel, { type: "EVENEMENT" }> | { type: "EVENEMENT"; ev: Evenement | undefined }
@@ -125,7 +126,16 @@ export default function PresencesScreen() {
   const { openSheet } = useSheet()
   const { toast } = useToast()
   const insets = useSafeAreaInsets()
-  const params = useLocalSearchParams<{ vue?: string; type?: string; date?: string; numero?: string; evenementId?: string }>()
+  const params = useLocalSearchParams<{
+    vue?: string
+    type?: string
+    date?: string
+    heure?: string
+    numero?: string
+    /** "1" : ancienne feuille sans heure (culte : `numero`). */
+    ancienne?: string
+    evenementId?: string
+  }>()
   const autorise = can("presences")
 
   const [vue, setVue] = useState<Vue>(params.vue === "appel" ? "appel" : "liste")
@@ -155,11 +165,20 @@ export default function PresencesScreen() {
   const [dateJour, setDateJour] = useState(() =>
     params.date && /^\d{4}-\d{2}-\d{2}$/.test(params.date) ? params.date : todayLocalISO()
   )
-  /** Numéro du culte dans la journée (1 à 5). */
-  const [numero, setNumero] = useState(() => {
+  /** Heure de la répétition ou du culte ("HH:MM") ; null : ancienne feuille, prise avant l'heure. */
+  const [heure, setHeure] = useState<string | null>(() => {
+    if (params.ancienne === "1") return null
+    if (heureValide(params.heure)) return params.heure
+    return params.type === "culte" ? HEURE_DEFAUT.CULTE : HEURE_DEFAUT.REPETITION
+  })
+  /** Ancienne feuille de culte sans heure : son numéro dans la journée. */
+  const [numero, setNumero] = useState<number | null>(() => {
+    if (params.ancienne !== "1" || params.type !== "culte") return null
     const n = Number(params.numero)
     return Number.isInteger(n) && n >= 1 && n <= NUMERO_CULTE_MAX ? n : 1
   })
+  /** Dernière heure choisie par type : retrouvée en rebasculant entre Répétition et Culte. */
+  const [dernieresHeures, setDernieresHeures] = useState({ ...HEURE_DEFAUT })
   const [eventId, setEventId] = useState<number | null>(() => (evenementDemande ?? evenementParDefaut)?.id ?? null)
   const [dateEvenement, setDateEvenement] = useState(todayLocalISO)
   const [titre, setTitre] = useState("")
@@ -167,14 +186,15 @@ export default function PresencesScreen() {
   const [modifie, setModifie] = useState(false)
   const [recherche, setRecherche] = useState("")
   const [filtre, setFiltre] = useState<Filtre>("tous")
+  const [genreVoix, setGenreVoix] = useState(FILTRE_GENRE_VOIX_DEFAUT)
   const [filtreHistorique, setFiltreHistorique] = useState<FiltreHistorique>("toutes")
   const [rechercheHistorique, setRechercheHistorique] = useState("")
 
   const ev = eventId != null ? parId(events, eventId) : undefined
   const date = type === "EVENEMENT" ? dateEvenement : dateJour
   const cleCourante = useMemo<Recherche>(
-    () => (type === "EVENEMENT" ? { type, ev } : type === "CULTE" ? { type, date: dateJour, numero } : { type, date: dateJour }),
-    [type, ev, dateJour, numero]
+    () => (type === "EVENEMENT" ? { type, ev } : { type, date: dateJour, heure, numero }),
+    [type, ev, dateJour, heure, numero]
   )
 
   const seanceExistante = useMemo(() => trouverSeance(seances, cleCourante), [seances, cleCourante])
@@ -194,7 +214,7 @@ export default function PresencesScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seanceExistante])
 
-  /** Change de feuille (type, jour d'une répétition ou d'un culte, numéro du culte, événement) et repart de sa version enregistrée. */
+  /** Change de feuille (type, jour et heure d'une répétition ou d'un culte, événement) et repart de sa version enregistrée. */
   const appliquer = useCallback(
     (cle: Cle) => {
       const recherche = versRecherche(cle, events)
@@ -203,7 +223,10 @@ export default function PresencesScreen() {
       if (cle.type === "EVENEMENT") setEventId(cle.eventId)
       else {
         setDateJour(cle.date)
-        if (cle.type === "CULTE") setNumero(cle.numero)
+        setHeure(cle.heure)
+        setNumero(cle.heure ? null : (cle.numero ?? null))
+        const h = cle.heure
+        if (h) setDernieresHeures((x) => ({ ...x, [cle.type]: h }))
       }
       initialiser(trouverSeance(seances, recherche), evenement)
     },
@@ -274,10 +297,14 @@ export default function PresencesScreen() {
 
   /** Choristes actifs (sans filtre de date) + membres déjà sur la feuille (comptes désactivés depuis). */
   const roster = useMemo(() => {
-    const liste = new Map<number, { id: number; nom: string; actif: boolean }>()
-    for (const m of membres) if (m.serverId) liste.set(Number(m.serverId), { id: Number(m.serverId), nom: m.data.nom, actif: true })
+    const liste = new Map<number, { id: number; nom: string; actif: boolean; genre: Genre | null; voix: Voix | null }>()
+    for (const m of membres) {
+      if (m.serverId) {
+        liste.set(Number(m.serverId), { id: Number(m.serverId), nom: m.data.nom, actif: true, genre: m.data.genre ?? null, voix: m.data.voix ?? null })
+      }
+    }
     for (const l of seanceExistante?.data.presences ?? []) {
-      if (!liste.has(l.membreId)) liste.set(l.membreId, { id: l.membreId, nom: l.nom, actif: false })
+      if (!liste.has(l.membreId)) liste.set(l.membreId, { id: l.membreId, nom: l.nom, actif: false, genre: null, voix: null })
     }
     return [...liste.values()].sort((a, b) => a.nom.localeCompare(b.nom, "fr"))
   }, [membres, seanceExistante])
@@ -296,11 +323,12 @@ export default function PresencesScreen() {
       if (filtre === "presents" && statut !== "PRESENT") return false
       if (filtre === "excuses" && statut !== "EXCUSE") return false
       if (filtre === "absents" && statut !== "ABSENT") return false
+      if (!filtrerGenreVoix(m, genreVoix)) return false
       return !q || plat(m.nom).includes(q)
     })
-  }, [roster, brouillon, recherche, filtre])
-  // Feuille d'appel paginée ; retour à la page 1 si la recherche, le filtre ou la séance changent.
-  const paginationAppel = usePagination(visibles, 20, [recherche, filtre, cleCourante])
+  }, [roster, brouillon, recherche, filtre, genreVoix])
+  // Feuille d'appel paginée ; retour à la page 1 si la recherche, un filtre ou la séance changent.
+  const paginationAppel = usePagination(visibles, 20, [recherche, filtre, genreVoix, cleCourante])
 
   const modifier = (changer: (b: Brouillon) => void) => {
     setBrouillon((precedent) => {
@@ -315,14 +343,15 @@ export default function PresencesScreen() {
   const basculer = (membreId: number) =>
     modifier((b) => b.set(membreId, { statut: (b.get(membreId) ?? ABSENT).statut === "PRESENT" ? "ABSENT" : "PRESENT", motif: null }))
 
+  // Actions groupées : sur les choristes affichés (recherche, filtres genre / voix…).
   const toutPresent = () =>
     modifier((b) => {
-      for (const m of roster) if ((b.get(m.id) ?? ABSENT).statut === "ABSENT") b.set(m.id, { statut: "PRESENT", motif: null })
+      for (const m of visibles) if ((b.get(m.id) ?? ABSENT).statut === "ABSENT") b.set(m.id, { statut: "PRESENT", motif: null })
     })
 
   const toutDecocher = () =>
     modifier((b) => {
-      for (const m of roster) if ((b.get(m.id) ?? ABSENT).statut === "PRESENT") b.set(m.id, ABSENT)
+      for (const m of visibles) if ((b.get(m.id) ?? ABSENT).statut === "PRESENT") b.set(m.id, ABSENT)
     })
 
   const ouvrirExcuse = (m: { id: number; nom: string }) => {
@@ -352,9 +381,10 @@ export default function PresencesScreen() {
       const data: SeanceData = {
         type,
         date,
-        // Intitulé : répétition et culte ; numéro : culte seulement.
+        // Intitulé et heure : répétition et culte ; numéro : ancienne feuille de culte sans heure.
         titre: type !== "EVENEMENT" ? titre.trim() || null : null,
-        numero: type === "CULTE" ? numero : null,
+        heure: type !== "EVENEMENT" ? heure : null,
+        numero: type === "CULTE" && !heure ? numero : null,
         ...(type === "EVENEMENT" && ev ? lienEvenement(ev) : { evenementId: null, evenementLocalId: null }),
         evenementTitre: type === "EVENEMENT" ? (ev?.titre ?? null) : null,
         presences: roster.map((m) => {
@@ -380,7 +410,7 @@ export default function PresencesScreen() {
   const supprimer = () => {
     if (!seanceExistante) return
     const localId = seanceExistante.localId
-    const quoi = type === "CULTE" ? `du ${titre.trim() || nomCulte(numero)} du` : "de présence du"
+    const quoi = seanceExistante ? `« ${libelleSeance(seanceExistante.data)} » du` : "de présence du"
     Alert.alert("Supprimer la feuille ?", `La feuille ${quoi} ${formatDateLong(date)} sera supprimée.`, [
       { text: "Annuler", style: "cancel" },
       {
@@ -430,12 +460,8 @@ export default function PresencesScreen() {
 
 
   const ouvrirFeuille = (s: OfflineRecord<SeanceData>) => {
-    if (s.data.type === "REPETITION") {
-      changerCle({ type: "REPETITION", date: s.data.date }, () => setVue("appel"))
-      return
-    }
-    if (s.data.type === "CULTE") {
-      changerCle({ type: "CULTE", date: s.data.date, numero: numeroSeance(s.data) ?? 1 }, () => setVue("appel"))
+    if (s.data.type !== "EVENEMENT") {
+      changerCle({ type: s.data.type, date: s.data.date, heure: heureSeance(s.data), numero: numeroSeance(s.data) }, () => setVue("appel"))
       return
     }
     const evenement = evenementDeSeance(s)
@@ -453,6 +479,7 @@ export default function PresencesScreen() {
         evenements={evenementsAppel.map((e) => ({ value: e.id, label: e.date ? `${e.titre} · ${formatDateShort(e.date)}` : e.titre }))}
         aujourdhui={todayLocalISO()}
         existe={(cle) => !!trouverSeance(seances, versRecherche(cle, events))}
+        heuresDejaPrises={(t, jour) => heuresPrises(seances, t, jour)}
         onCommencer={(cle) => {
           setRecherche("")
           setFiltre("tous")
@@ -552,19 +579,14 @@ export default function PresencesScreen() {
                       <Chip
                         label="Répétition"
                         active={type === "REPETITION"}
-                        onPress={() => type !== "REPETITION" && changerCle({ type: "REPETITION", date: dateJour })}
+                        onPress={() =>
+                          type !== "REPETITION" && changerCle({ type: "REPETITION", date: dateJour, heure: dernieresHeures.REPETITION })
+                        }
                       />
                       <Chip
                         label="Culte"
                         active={type === "CULTE"}
-                        onPress={() =>
-                          type !== "CULTE" &&
-                          changerCle({
-                            type: "CULTE",
-                            date: dateJour,
-                            numero: premierCulteLibre(dateJour, (c) => !!trouverSeance(seances, versRecherche(c, events))),
-                          })
-                        }
+                        onPress={() => type !== "CULTE" && changerCle({ type: "CULTE", date: dateJour, heure: dernieresHeures.CULTE })}
                       />
                       <Chip
                         label="Événement"
@@ -572,32 +594,20 @@ export default function PresencesScreen() {
                         onPress={() => type !== "EVENEMENT" && changerCle({ type: "EVENEMENT", eventId: eventId ?? evenementParDefaut?.id ?? null })}
                       />
                     </ChipsRow>
-                    {type === "REPETITION" ? (
+                    {type !== "EVENEMENT" ? (
                       <>
                         <DateField
-                          label="Date"
+                          label={type === "CULTE" ? "Date du culte" : "Date"}
                           value={parseLocalISODate(dateJour)}
                           onChange={(d) => {
                             const jour = localISODate(d)
-                            if (jour !== dateJour) changerCle({ type: "REPETITION", date: jour })
+                            // Une ancienne feuille sans heure : l'autre jour s'ouvre à l'heure habituelle.
+                            if (jour !== dateJour) changerCle({ type, date: jour, heure: heure ?? dernieresHeures[type] })
                           }}
                           maximumDate={new Date()}
                         />
-                        {champIntitule("Ex. Répétition générale")}
-                      </>
-                    ) : type === "CULTE" ? (
-                      <>
-                        <DateField
-                          label="Date du culte"
-                          value={parseLocalISODate(dateJour)}
-                          onChange={(d) => {
-                            const jour = localISODate(d)
-                            if (jour !== dateJour) changerCle({ type: "CULTE", date: jour, numero })
-                          }}
-                          maximumDate={new Date()}
-                        />
-                        <ChoixCulte numero={numero} onChange={(n) => changerCle({ type: "CULTE", date: dateJour, numero: n })} />
-                        {champIntitule("Ex. Culte de 7 h")}
+                        <TimeField label="Heure" value={heure} onChange={(h) => h !== heure && changerCle({ type, date: dateJour, heure: h })} />
+                        {champIntitule(type === "CULTE" ? "Ex. Messe des jeunes" : "Ex. Répétition générale")}
                       </>
                     ) : evenementsAppel.length === 0 && !ev ? (
                       <EmptyState icon={CalendarDays} title="Aucun événement" subtitle="Créez d'abord l'événement, puis faites l'appel." />
@@ -673,6 +683,7 @@ export default function PresencesScreen() {
                             <Chip label={`Excusés ${compteurs.excuses}`} active={filtre === "excuses"} onPress={() => setFiltre("excuses")} />
                             <Chip label={`Absents ${compteurs.absents}`} active={filtre === "absents"} onPress={() => setFiltre("absents")} />
                           </ChipsRow>
+                          <FiltresGenreVoix value={genreVoix} onChange={setGenreVoix} />
 
                           {visibles.length === 0 ? (
                             <EmptyState title="Aucun résultat" subtitle="Modifiez la recherche ou le filtre." />

@@ -1,3 +1,4 @@
+import { Download } from "lucide-react-native"
 import { useMemo, useState } from "react"
 import { Text, View } from "react-native"
 import { DateField } from "../DateField"
@@ -25,6 +26,7 @@ import {
 import { usePagination } from "../../hooks/usePagination"
 import { correspondRecherche, fmt, MONTHS } from "../../lib/format"
 import type { DetailsPaiement } from "../../lib/api"
+import { telechargerRecuPdf } from "../../lib/recuPdf"
 import { errorMessage, useApp } from "../../context/AppContext"
 import { parId } from "../../context/choraleData"
 import { useSheet } from "../../context/SheetContext"
@@ -362,7 +364,7 @@ export function EventPaymentSheet({ eventId, chorishId }: { eventId: number; cho
 export function ReceiptSheet({
   receipt,
 }: {
-  receipt: Pick<Recu, "id" | "chorishId" | "label" | "montant" | "date" | "enregistrePar" | "mode" | "localId" | "syncStatus">
+  receipt: Pick<Recu, "id" | "chorishId" | "type" | "label" | "montant" | "date" | "enregistrePar" | "mode" | "localId" | "syncStatus">
 }) {
   const { chorists, choraleNom, parametres, can, cancelPayment } = useApp()
   const { closeSheet } = useSheet()
@@ -370,6 +372,7 @@ export function ReceiptSheet({
   const [annulation, setAnnulation] = useState(false)
   const [motif, setMotif] = useState("")
   const [busy, setBusy] = useState(false)
+  const [generation, setGeneration] = useState(false)
   // Paiement refusé avant d'atteindre le serveur : il se retire simplement (pas de motif).
   const nonEnvoye = receipt.syncStatus === "failed" && receipt.id === "En attente"
   const peutAnnuler = !!receipt.localId && (nonEnvoye || can("paiementsAnnuler"))
@@ -393,6 +396,30 @@ export function ReceiptSheet({
   const chorist = chorists.find((c) => c.id === receipt.chorishId)
   // Libellé du mode (code inconnu, ex. mode supprimé depuis : le code lui-même).
   const mode = receipt.mode ? (parametres.modesReglement.find((m) => m.code === receipt.mode)?.label ?? receipt.mode) : null
+  // Paiement refusé par le serveur : pas de reçu à télécharger.
+  const peutTelecharger = receipt.syncStatus !== "failed"
+
+  async function telecharger() {
+    if (generation) return
+    setGeneration(true)
+    try {
+      await telechargerRecuPdf({
+        choraleNom,
+        numero: receipt.id === "En attente" ? null : receipt.id,
+        choriste: chorist?.name ?? "—",
+        montant: receipt.montant,
+        designation: receipt.label,
+        categorie: receipt.type === "Statutaire" ? "Cotisation statutaire" : "Cotisation événementielle",
+        datePaiement: receipt.date,
+        mode,
+        auteur: receipt.enregistrePar,
+      })
+    } catch (e) {
+      toast(e instanceof Error && e.message ? e.message : "La génération du reçu a échoué. Réessayez.")
+    } finally {
+      setGeneration(false)
+    }
+  }
 
   return (
     <View>
@@ -441,6 +468,17 @@ export function ReceiptSheet({
           </Text>
         </View>
       </View>
+
+      {peutTelecharger ? (
+        <Button
+          title={generation ? "Génération du PDF…" : "Télécharger le reçu (PDF)"}
+          icon={Download}
+          block
+          className="mt-4"
+          disabled={generation}
+          onPress={telecharger}
+        />
+      ) : null}
 
       {peutAnnuler ? (
         annulation ? (

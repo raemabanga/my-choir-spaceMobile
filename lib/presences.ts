@@ -1,8 +1,8 @@
 // Présences : règles pures partagées (dédoublonnage des feuilles du téléphone, libellés, assiduité
 // d'un choriste calculée sur place, avec les mêmes formules que l'API : back-end presences.stats.ts).
 import type { OfflineRecord } from "./offline"
-import { evenementRepository, numeroSeance, type SeanceData } from "./offline/entities"
-import { nomCulte, type CategorieAssiduite, type StatutPresence, type TypeSeance } from "./api"
+import { creneauSeance, evenementRepository, heureSeance, type SeanceData } from "./offline/entities"
+import { heureFr, type CategorieAssiduite, type StatutPresence, type TypeSeance } from "./api"
 
 /** Seuils d'assiduité (%), comme l'API. */
 export const SEUILS_ASSIDUITE = { assidu: 75, irregulier: 40 } as const
@@ -22,7 +22,7 @@ export function seancePrioritaire(a: OfflineRecord<SeanceData>, b: OfflineRecord
 export const serveurEvenement = (evenementLocalId: string) => evenementRepository.getByLocalId(evenementLocalId)?.serverId ?? null
 
 /**
- * Une feuille par séance (répétition d'un jour, culte d'un jour et numéro, événement), dans l'ordre
+ * Une feuille par séance (répétition ou culte : jour et heure ; événement), dans l'ordre
  * de la liste reçue. `serveurEvenementDe` retrouve l'identifiant serveur d'un événement créé hors ligne.
  */
 export function feuillesUniques(
@@ -32,9 +32,8 @@ export function feuillesUniques(
   const parCle = new Map<string, OfflineRecord<SeanceData>>()
   const ordre: string[] = []
   for (const s of seances) {
-    let cle = `REPETITION:${s.data.date}`
-    if (s.data.type === "CULTE") cle = `CULTE:${s.data.date}:${numeroSeance(s.data)}`
-    else if (s.data.type === "EVENEMENT") {
+    let cle = `${s.data.type}:${s.data.date}:${creneauSeance(s.data)}`
+    if (s.data.type === "EVENEMENT") {
       const serveur = s.data.evenementId ?? (s.data.evenementLocalId ? serveurEvenementDe(s.data.evenementLocalId) : null)
       cle = serveur != null ? `EVENEMENT:${serveur}` : `EVENEMENT:local:${s.data.evenementLocalId ?? s.localId}`
     }
@@ -45,11 +44,13 @@ export function feuillesUniques(
   return ordre.map((cle) => parCle.get(cle)!)
 }
 
-/** Libellé d'une feuille, comme le `libelle` de l'API (culte : intitulé, sinon « 2e culte »). */
+/** Libellé d'une feuille, comme le `libelle` de l'API (intitulé, sinon « Culte de 7h30 », « Répétition de 18h00 »). */
 export function libelleSeance(data: SeanceData): string {
-  if (data.type === "REPETITION") return data.titre ?? "Répétition"
-  if (data.type === "CULTE") return data.titre ?? nomCulte(numeroSeance(data))
-  return data.evenementTitre ?? "Événement"
+  if (data.type === "EVENEMENT") return data.evenementTitre ?? "Événement"
+  if (data.titre) return data.titre
+  const nom = data.type === "REPETITION" ? "Répétition" : "Culte"
+  const heure = heureSeance(data)
+  return heure ? `${nom} de ${heureFr(heure)}` : nom
 }
 
 /** round(presents / (attendues − excuses) × 100), null quand cette base est nulle. */

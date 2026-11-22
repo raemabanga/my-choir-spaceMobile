@@ -12,6 +12,7 @@ export type Role =
 /** Mêmes droits que le portail web (Perms), calculés dans lib/roles.ts. */
 export type Permission =
   | "comptes"
+  | "comptesVoir"
   | "comptesFull"
   | "evenements"
   | "cotisations"

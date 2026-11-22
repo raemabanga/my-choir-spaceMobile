@@ -4,14 +4,17 @@
 
 import DateTimePicker from "@react-native-community/datetimepicker"
 import { useState } from "react"
-import { Platform, Pressable, Text, View } from "react-native"
+import { Platform, Pressable, Switch, Text, View } from "react-native"
+import { colors } from "../../constants/theme"
 import { DateField } from "../DateField"
 import {
   depuisDate,
+  GENRES,
   SITUATIONS_MATRIMONIALES,
   SITUATIONS_SOCIALES,
   STATUTS_EGLISE,
   TYPES_MARIAGE,
+  VOIX,
   versDate,
   type ErreursFiche,
   type FicheSaisie,
@@ -119,6 +122,26 @@ export function FicheChoristeChamps({
 
   return (
     <View>
+      <SectionHeader title="Genre et pupitre" />
+      <FieldLabel>Genre</FieldLabel>
+      <ChoixUnique options={GENRES} value={saisie.genre} onChange={(v) => onChange({ genre: v })} />
+      <FieldLabel>Voix</FieldLabel>
+      <ChoixUnique options={VOIX} value={saisie.voix} onChange={(v) => onChange({ voix: v })} />
+      <View className="mt-3.5 flex-row items-center justify-between gap-3 rounded-xl border border-line bg-paper px-3.5 py-3">
+        <View className="flex-1">
+          <Text className="font-sans-medium text-[13.5px] text-ink">Instrumentiste</Text>
+          <Text className="font-sans text-[12px] text-ink-light">Joue d'un instrument pour la chorale</Text>
+        </View>
+        <Switch
+          value={saisie.instrumentiste ?? false}
+          onValueChange={(v) => onChange({ instrumentiste: v })}
+          accessibilityLabel="Instrumentiste"
+          // Composant natif : couleurs passées en props.
+          trackColor={{ false: colors.lineStrong, true: colors.navy }}
+          thumbColor={colors.paper}
+        />
+      </View>
+
       <SectionHeader title="Naissance et domicile" />
       <DateFacultative
         label="Date de naissance (facultatif)"

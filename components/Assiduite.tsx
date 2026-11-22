@@ -9,7 +9,7 @@ import { useOfflineCollection } from "../hooks/offline"
 import { usePagination } from "../hooks/usePagination"
 import { LIBELLE_TYPE_SEANCE, type CategorieAssiduite, type StatutPresence, type TypeSeance } from "../lib/api"
 import { addDaysISO, formatDateShort, todayLocalISO } from "../lib/format"
-import { numeroSeance, seanceRepository } from "../lib/offline/entities"
+import { heureSeance, numeroSeance, seanceRepository } from "../lib/offline/entities"
 import { assiduiteMembre, feuillesUniques, type ResumeAssiduite } from "../lib/presences"
 import { Card, Chip, ChipsRow, ListRow, Muted, Numeric, Pagination, Pill, ProgressBar, RowBetween, type PillVariant } from "./ui"
 
@@ -92,12 +92,17 @@ export function PresencesMembre({ membreId }: { membreId: number }) {
     const f = seances.find((s) => s.localId === localId)?.data
     if (!f) return
     let params: Record<string, string>
-    if (f.type === "CULTE") params = { vue: "appel", type: "culte", date: f.date, numero: String(numeroSeance(f)) }
-    else if (f.type === "EVENEMENT") {
+    if (f.type === "EVENEMENT") {
       const ev = events.find((e) => (f.evenementId != null && e.id === f.evenementId) || (!!f.evenementLocalId && e.localId === f.evenementLocalId))
       if (!ev) return
       params = { vue: "appel", type: "evenement", evenementId: String(ev.id) }
-    } else params = { vue: "appel", type: "repetition", date: f.date }
+    } else {
+      params = { vue: "appel", type: f.type === "CULTE" ? "culte" : "repetition", date: f.date }
+      const heure = heureSeance(f)
+      // Ancienne feuille sans heure : un culte se retrouve par son numéro.
+      if (heure) params.heure = heure
+      else Object.assign(params, { ancienne: "1", numero: String(numeroSeance(f) ?? 1) })
+    }
     closeSheet()
     router.push({ pathname: "/presences", params })
   }
